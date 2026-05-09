@@ -709,13 +709,22 @@ def _checkbox(label: str, name: str, checked: bool = False):
     return Label(Input(type="checkbox", name=name, value="true", checked=checked), label)
 
 
-def _service_env_fields(service: str, ui_lang: str = "zh"):
+def _service_env_fields(
+    service: str,
+    ui_lang: str = "zh",
+    env_overrides: dict[str, str] | None = None,
+    prompt_value: str = "",
+):
+    env_overrides = env_overrides or {}
     translator = service_map[service]
     fields = [Input(type="hidden", name=f"env_{i}", value="") for i in range(4)]
     env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
-        value = ConfigManager.get_env_by_translatername(translator, env[0], env[1])
+        value = env_overrides.get(
+            f"env_{i}",
+            ConfigManager.get_env_by_translatername(translator, env[0], env[1]),
+        )
         env_values[label] = value
         input_type = "password" if "API_KEY" in label.upper() else "text"
         if hidden_secret_details and "MODEL" not in str(label).upper() and value:
@@ -741,7 +750,10 @@ def _service_env_fields(service: str, ui_lang: str = "zh"):
             )
         fields[i] = _field(label, child)
     if translator.CustomPrompt:
-        fields[-1] = _field(_t(ui_lang, "custom_prompt"), Textarea("", name="prompt", rows=5))
+        fields[-1] = _field(
+            _t(ui_lang, "custom_prompt"),
+            Textarea(prompt_value or "", name="prompt", rows=5),
+        )
     else:
         fields.append(Input(type="hidden", name="prompt", value=""))
     return Div(*fields, id="env-fields", cls="stack")
@@ -1148,13 +1160,30 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
     )
 
     @rt("/")
-    def index(req, ui_lang: str = "zh"):
+    def index(req, ui_lang: str = "zh", settings_from: str = ""):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
         ui_lang = _ui_lang(ui_lang)
         session_id = str(uuid.uuid4())
-        default_service = enabled_services[0]
+        seed_job = translation_jobs.get(settings_from) if settings_from else None
+        seed_params = dict(seed_job.get("params", {})) if seed_job else {}
+        default_service = str(seed_params.get("service") or enabled_services[0])
+        if default_service not in enabled_services:
+            default_service = enabled_services[0]
+        file_type = str(seed_params.get("file_type") or "File")
+        lang_from = str(seed_params.get("lang_from") or ConfigManager.get("PDF2ZH_LANG_FROM", "English"))
+        lang_to = str(seed_params.get("lang_to") or ConfigManager.get("PDF2ZH_LANG_TO", "Simplified Chinese"))
+        page_range = str(seed_params.get("page_range") or list(page_map.keys())[0])
+        if page_range not in page_map:
+            page_range = list(page_map.keys())[0]
+        autohide_checked = bool(seed_job.get("autohide")) if seed_job else False
+        env_overrides = {
+            f"env_{i}": str(seed_params.get(f"env_{i}") or "")
+            for i in range(4)
+            if seed_params.get(f"env_{i}")
+        }
+        settings_query = f"&settings_from={quote(settings_from)}" if seed_job else ""
         form = Form(
             Input(type="hidden", name="session_id", value=session_id),
             Input(type="hidden", name="ui_lang", value=ui_lang),
@@ -1164,7 +1193,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     Option(_t(ui_lang, "english"), value="en", selected=ui_lang == "en"),
                     Option(_t(ui_lang, "chinese"), value="zh", selected=ui_lang == "zh"),
                     name="ui_lang_selector",
-                    onchange="window.location='/?ui_lang=' + this.value",
+                    onchange=f"window.location='/?ui_lang=' + this.value + '{settings_query}'",
                 ),
             ),
             Div(
@@ -1174,6 +1203,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         name="autohide",
                         value="true",
                         id="autohide-toggle",
+                        checked=autohide_checked,
                     ),
                     _t(ui_lang, "autohide"),
                 ),
@@ -1197,8 +1227,8 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             _field(
                 _t(ui_lang, "type"),
                 Select(
-                    Option(_t(ui_lang, "file_choice"), value="File", selected=True),
-                    Option(_t(ui_lang, "link_choice"), value="Link"),
+                    Option(_t(ui_lang, "file_choice"), value="File", selected=file_type == "File"),
+                    Option(_t(ui_lang, "link_choice"), value="Link", selected=file_type == "Link"),
                     name="file_type",
                 ),
             ),
@@ -1217,7 +1247,15 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         hx_include="[name='autohide'],[name='ui_lang']",
                     ),
                 ),
-                _field(_t(ui_lang, "link"), Input(type="url", name="link_input", placeholder="https://...")),
+                _field(
+                    _t(ui_lang, "link"),
+                    Input(
+                        type="url",
+                        name="link_input",
+                        value=str(seed_params.get("link_input") or ""),
+                        placeholder="https://...",
+                    ),
+                ),
                 cls="stack",
             ),
             H2(_t(ui_lang, "option")),
@@ -1232,25 +1270,24 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     hx_include="[name='service'],[name='ui_lang']",
                 ),
             ),
-            _service_env_fields(default_service, ui_lang),
+            _service_env_fields(
+                default_service,
+                ui_lang,
+                env_overrides=env_overrides,
+                prompt_value=str(seed_params.get("prompt") or ""),
+            ),
             Div(
                 _field(
                     _t(ui_lang, "translate_from"),
                     Select(
-                        *_lang_options(
-                            ui_lang,
-                            ConfigManager.get("PDF2ZH_LANG_FROM", "English"),
-                        ),
+                        *_lang_options(ui_lang, lang_from),
                         name="lang_from",
                     ),
                 ),
                 _field(
                     _t(ui_lang, "translate_to"),
                     Select(
-                        *_lang_options(
-                            ui_lang,
-                            ConfigManager.get("PDF2ZH_LANG_TO", "Simplified Chinese"),
-                        ),
+                        *_lang_options(ui_lang, lang_to),
                         name="lang_to",
                     ),
                 ),
@@ -1259,24 +1296,63 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             _field(
                 _t(ui_lang, "pages"),
                 Select(
-                    *_page_options(ui_lang, list(page_map.keys())[0]),
+                    *_page_options(ui_lang, page_range),
                     name="page_range",
                 ),
             ),
-            _field(_t(ui_lang, "page_range"), Input(type="text", name="page_input", placeholder="1,3,5-7")),
+            _field(
+                _t(ui_lang, "page_range"),
+                Input(
+                    type="text",
+                    name="page_input",
+                    value=str(seed_params.get("page_input") or ""),
+                    placeholder="1,3,5-7",
+                ),
+            ),
             Details(
                 Summary(_t(ui_lang, "experimental_options")),
                 Div(
-                    _field(_t(ui_lang, "threads"), Input(type="number", min="1", step="1", name="threads", value="4")),
-                    _checkbox(_t(ui_lang, "skip_subset_fonts"), "skip_subset_fonts"),
-                    _checkbox(_t(ui_lang, "ignore_cache"), "ignore_cache"),
+                    _field(
+                        _t(ui_lang, "threads"),
+                        Input(
+                            type="number",
+                            min="1",
+                            step="1",
+                            name="threads",
+                            value=str(seed_params.get("threads") or "4"),
+                        ),
+                    ),
+                    _checkbox(
+                        _t(ui_lang, "skip_subset_fonts"),
+                        "skip_subset_fonts",
+                        checked=bool(seed_params.get("skip_subset_fonts")),
+                    ),
+                    _checkbox(
+                        _t(ui_lang, "ignore_cache"),
+                        "ignore_cache",
+                        checked=bool(seed_params.get("ignore_cache")),
+                    ),
                     _field(
                         _t(ui_lang, "vfont"),
-                        Input(type="text", name="vfont", value=ConfigManager.get("PDF2ZH_VFONT", "")),
+                        Input(
+                            type="text",
+                            name="vfont",
+                            value=str(
+                                seed_params.get("vfont")
+                                if seed_params.get("vfont") is not None
+                                else ConfigManager.get("PDF2ZH_VFONT", "")
+                            ),
+                        ),
                     ),
                     _field(
                         _t(ui_lang, "translation_mode"),
-                        Select(*_mode_options(ui_lang, "fast"), name="mode_choice"),
+                        Select(
+                            *_mode_options(
+                                ui_lang,
+                                str(seed_params.get("mode_choice") or "fast"),
+                            ),
+                            name="mode_choice",
+                        ),
                     ),
                     cls="stack",
                 ),
@@ -1424,6 +1500,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             "env_2": form.get("env_2", ""),
             "env_3": form.get("env_3", ""),
         }
+        translation_jobs[session_id]["params"] = dict(params)
         translation_jobs[session_id]["settings"] = _run_settings(params, ui_lang)
 
         def run_translation_job():
@@ -1542,7 +1619,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 Div(
                     A(
                         _t(ui_lang, "start_another"),
-                        href=f"/?ui_lang={ui_lang}",
+                        href=f"/?ui_lang={ui_lang}&settings_from={quote(session_id)}",
                         cls="button secondary",
                     ),
                     cls="actions",
