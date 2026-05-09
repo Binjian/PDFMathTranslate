@@ -3,6 +3,8 @@ import base64
 import cgi
 import json
 import logging
+import multiprocessing
+import queue
 import os
 import shutil
 import socket
@@ -330,7 +332,12 @@ def stop_translate_file(session_id: str | None) -> None:
         logger.info("Stopping translation for session %s", session_id)
         cancellation_event_map[session_id].set()
     if session_id and session_id in translation_jobs:
+        process = translation_jobs[session_id].get("process")
+        if process and process.is_alive():
+            process.terminate()
         translation_jobs[session_id]["message"] = "Cancellation requested"
+        translation_jobs[session_id]["status"] = "error"
+        translation_jobs[session_id]["error"] = "Translation cancelled"
 
 
 def _selected_pages(page_range: str, page_input: str) -> list[int] | None:
@@ -367,6 +374,7 @@ def translate_file(
     recaptcha_response,
     session_id,
     *envs,
+    progress_queue=None,
 ):
     session_id = session_id or str(uuid.uuid4())
     cancellation_event_map[session_id] = asyncio.Event()
@@ -419,6 +427,14 @@ def translate_file(
                     "message": desc,
                 }
             )
+        if progress_queue is not None:
+            progress_queue.put(
+                {
+                    "type": "progress",
+                    "progress": min(0.99, max(0.0, t.n / total)),
+                    "message": desc,
+                }
+            )
         logger.info("%s %.0f%%", desc, 100 * t.n / total)
 
     try:
@@ -463,6 +479,41 @@ def translate_file(
     if not file_mono.exists() or not file_dual.exists():
         raise GuiError("No output")
     return str(file_mono), str(file_dual)
+
+
+def _translate_file_process(params: dict, progress_queue) -> None:
+    try:
+        mono, dual = translate_file(
+            params["file_type"],
+            params["file_input"],
+            params["link_input"],
+            params["service"],
+            params["lang_from"],
+            params["lang_to"],
+            params["page_range"],
+            params["page_input"],
+            params["prompt"],
+            params["threads"],
+            params["skip_subset_fonts"],
+            params["ignore_cache"],
+            params["vfont"],
+            params["mode_choice"],
+            params["recaptcha_response"],
+            params["session_id"],
+            params["env_0"],
+            params["env_1"],
+            params["env_2"],
+            params["env_3"],
+            progress_queue=progress_queue,
+        )
+        progress_queue.put({"type": "done", "mono": mono, "dual": dual})
+    except BaseException as exc:
+        progress_queue.put(
+            {
+                "type": "error",
+                "message": str(exc) or exc.__class__.__name__,
+            }
+        )
 
 
 def parse_user_passwd(file_path: str) -> tuple:
@@ -1140,48 +1191,80 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         }
 
         def run_translation_job():
+            ctx = multiprocessing.get_context("spawn")
+            progress_queue = ctx.Queue()
+            process = ctx.Process(
+                target=_translate_file_process,
+                args=(params, progress_queue),
+            )
+            translation_jobs[session_id]["process"] = process
+            process.start()
+            while True:
+                try:
+                    event = progress_queue.get(timeout=0.5)
+                except queue.Empty:
+                    event = None
+
+                if event:
+                    event_type = event.get("type")
+                    if event_type == "progress":
+                        translation_jobs[session_id].update(
+                            {
+                                "progress": event.get("progress", 0.0),
+                                "message": event.get("message", ""),
+                            }
+                        )
+                    elif event_type == "done":
+                        translation_jobs[session_id].update(
+                            {
+                                "status": "done",
+                                "progress": 1.0,
+                                "message": _t(ui_lang, "translated"),
+                                "mono": event["mono"],
+                                "dual": event["dual"],
+                            }
+                        )
+                        break
+                    elif event_type == "error":
+                        translation_jobs[session_id].update(
+                            {
+                                "status": "error",
+                                "progress": 1.0,
+                                "message": event.get("message", "Unknown error"),
+                                "error": event.get("message", "Unknown error"),
+                            }
+                        )
+                        break
+
+                if not process.is_alive():
+                    exitcode = process.exitcode
+                    if translation_jobs[session_id].get("status") in {"done", "error"}:
+                        break
+                    if exitcode == 0:
+                        message = "Translation worker finished without returning a result."
+                    else:
+                        message = (
+                            f"Translation worker crashed with exit code {exitcode}. "
+                            "The GUI is still running; try another model or reduce concurrency."
+                        )
+                    translation_jobs[session_id].update(
+                        {
+                            "status": "error",
+                            "progress": 1.0,
+                            "message": message,
+                            "error": message,
+                        }
+                    )
+                    break
+
+            process.join(timeout=1)
+            translation_jobs[session_id].pop("process", None)
+
             try:
-                mono, dual = translate_file(
-                    params["file_type"],
-                    params["file_input"],
-                    params["link_input"],
-                    params["service"],
-                    params["lang_from"],
-                    params["lang_to"],
-                    params["page_range"],
-                    params["page_input"],
-                    params["prompt"],
-                    params["threads"],
-                    params["skip_subset_fonts"],
-                    params["ignore_cache"],
-                    params["vfont"],
-                    params["mode_choice"],
-                    params["recaptcha_response"],
-                    params["session_id"],
-                    params["env_0"],
-                    params["env_1"],
-                    params["env_2"],
-                    params["env_3"],
-                )
-                translation_jobs[session_id].update(
-                    {
-                        "status": "done",
-                        "progress": 1.0,
-                        "message": _t(ui_lang, "translated"),
-                        "mono": mono,
-                        "dual": dual,
-                    }
-                )
-            except Exception as exc:
-                logger.exception("GUI translation failed")
-                translation_jobs[session_id].update(
-                    {
-                        "status": "error",
-                        "progress": 1.0,
-                        "message": str(exc) or exc.__class__.__name__,
-                        "error": str(exc) or exc.__class__.__name__,
-                    }
-                )
+                progress_queue.close()
+                progress_queue.join_thread()
+            except Exception:
+                pass
 
         threading.Thread(target=run_translation_job, daemon=True).start()
         return _progress_page(session_id, ui_lang=ui_lang, autohide=autohide)
