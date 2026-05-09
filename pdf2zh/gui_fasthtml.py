@@ -1230,9 +1230,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .control-panel details > div { margin-top: .25rem; }
                 .control-panel .muted { font-size: .75rem; }
                 .file-drop-zone { display: grid; gap: .25rem; padding: .45rem; border: 1px dashed #a8b3c4; border-radius: 6px; background: #f8fafc; transition: background .15s ease, border-color .15s ease; }
-                .file-drop-zone.drag-over { background: #eef6ff; border-color: #3b82f6; }
+                .file-drop-zone.drag-over, .preview.drag-over { background: #eef6ff; border-color: #3b82f6; }
                 .file-drop-zone .drop-hint { color: #526071; font-size: .78rem; line-height: 1.2; }
                 .preview, .result { width: 100%; }
+                .preview { border: 1px dashed transparent; border-radius: 8px; transition: background .15s ease, border-color .15s ease; }
                 .result { grid-column: 1 / -1; }
                 .stack { display: grid; gap: .3rem; }
                 .ollama-host-field { display: grid; gap: .25rem; }
@@ -1424,24 +1425,13 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             ),
             Script(
                 """
-                const dropZone = document.getElementById('file-drop-zone');
+                const dropTargets = [
+                    document.getElementById('file-drop-zone'),
+                    document.getElementById('preview-panel'),
+                ].filter(Boolean);
                 const fileInput = document.getElementById('file-input');
-                if (dropZone && fileInput) {
-                    ['dragenter', 'dragover'].forEach((name) => {
-                        dropZone.addEventListener(name, (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            dropZone.classList.add('drag-over');
-                        });
-                    });
-                    ['dragleave', 'drop'].forEach((name) => {
-                        dropZone.addEventListener(name, (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            dropZone.classList.remove('drag-over');
-                        });
-                    });
-                    dropZone.addEventListener('drop', (event) => {
+                if (dropTargets.length && fileInput) {
+                    const useDroppedFile = (event) => {
                         const files = event.dataTransfer?.files;
                         if (!files || files.length === 0) return;
                         const transfer = new DataTransfer();
@@ -1450,6 +1440,28 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         const fileType = document.querySelector('[name="file_type"]');
                         if (fileType) fileType.value = 'File';
                         fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    };
+                    dropTargets.forEach((target) => {
+                        ['dragenter', 'dragover'].forEach((name) => {
+                            target.addEventListener(name, (event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                target.classList.add('drag-over');
+                            });
+                        });
+                        ['dragleave', 'drop'].forEach((name) => {
+                            target.addEventListener(name, (event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                target.classList.remove('drag-over');
+                            });
+                        });
+                        target.addEventListener('drop', (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            target.classList.remove('drag-over');
+                            useDroppedFile(event);
+                        });
                     });
                 }
                 """
