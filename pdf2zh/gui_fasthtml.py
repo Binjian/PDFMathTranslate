@@ -398,52 +398,55 @@ def _result_panel(
     mono_view_url = f"{mono_url}#view=FitH"
     dual_view_url = f"{dual_url}#view=FitH&spread=even"
     return Div(
-        H2("Translated"),
         Div(
-            Label(
-                Input(
-                    type="checkbox",
-                    id="result-autohide-toggle",
-                    checked=autohide,
+            H2("Translated"),
+            Div(
+                Label(
+                    Input(
+                        type="checkbox",
+                        id="result-autohide-toggle",
+                        checked=autohide,
+                    ),
+                    "Autohide",
                 ),
-                "Autohide",
+                cls="toggle-row",
             ),
-            cls="toggle-row",
-        ),
-        Div(
-            Label(
-                Input(
-                    type="radio",
-                    name="translated_view",
-                    value="mono",
-                    checked=True,
-                    data_url=mono_view_url,
+            Div(
+                Label(
+                    Input(
+                        type="radio",
+                        name="translated_view",
+                        value="mono",
+                        checked=True,
+                        data_url=mono_view_url,
+                    ),
+                    "Mono",
                 ),
-                "Mono",
-            ),
-            Label(
-                Input(
-                    type="radio",
-                    name="translated_view",
-                    value="dual",
-                    data_url=dual_view_url,
+                Label(
+                    Input(
+                        type="radio",
+                        name="translated_view",
+                        value="dual",
+                        data_url=dual_view_url,
+                    ),
+                    "Dual",
                 ),
-                "Dual",
+                cls="radio-row",
             ),
-            cls="radio-row",
-        ),
-        Div(
-            A(
-                "Download Translation (Mono)",
-                href=mono_url,
-                cls="button",
+            Div(
+                A(
+                    "Download Translation (Mono)",
+                    href=mono_url,
+                    cls="button",
+                ),
+                A(
+                    "Download Translation (Dual)",
+                    href=dual_url,
+                    cls="button secondary",
+                ),
+                cls="actions",
             ),
-            A(
-                "Download Translation (Dual)",
-                href=dual_url,
-                cls="button secondary",
-            ),
-            cls="actions",
+            cls="result-toolbar",
         ),
         Iframe(id="translated-frame", src=mono_view_url, title="Translated Document"),
         Script(
@@ -571,6 +574,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .stack { display: grid; gap: .75rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+                .result-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; margin-bottom: .75rem; }
+                .result-toolbar h2 { margin: 0; }
+                .result-toolbar .toggle-row, .result-toolbar .radio-row, .result-toolbar .actions { margin: 0; }
                 .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; }
                 .toggle-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
                 .autohide-exit { display: none; position: fixed; top: .5rem; right: 1rem; z-index: 10; width: auto; padding: .35rem .65rem; }
@@ -587,6 +593,11 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .autohide .layout { display: block; }
                 .autohide .preview h2, .autohide .result h2 { margin-bottom: .5rem; }
                 .autohide iframe { height: calc(100vh - 6.5rem); }
+                .autohide .result-toolbar { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; margin-right: 8.5rem; margin-bottom: .35rem; padding-bottom: .1rem; }
+                .autohide .result-toolbar .actions { flex-wrap: nowrap; }
+                .autohide .result-toolbar h2 { font-size: 1rem; line-height: 1.2; margin: 0; }
+                .autohide .result-toolbar a.button, .autohide .result-toolbar button, .autohide .result-toolbar [role="button"] { width: auto; padding: .25rem .55rem; margin: 0; font-size: .875rem; }
+                .autohide .result #translated-frame { height: calc(100vh - 3.25rem); }
                 details { margin-top: .75rem; }
                 @media (max-width: 900px) {
                     .layout, .split { grid-template-columns: 1fr; }
