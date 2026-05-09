@@ -312,6 +312,29 @@ OLLAMA_MODEL_OPTIONS = [
     "deepseek-r1:1.5b",
 ]
 
+OLLAMA_MODEL_FALLBACK_OPTIONS = OLLAMA_MODEL_OPTIONS
+
+
+def _ollama_model_options(host: str | None, selected: str | None = None) -> list[str]:
+    models: list[str] = []
+    host = (host or "").strip().rstrip("/")
+    if host:
+        try:
+            response = requests.get(f"{host}/api/tags", timeout=2)
+            response.raise_for_status()
+            data = response.json()
+            for model in data.get("models", []):
+                name = model.get("name") if isinstance(model, dict) else None
+                if name:
+                    models.append(name)
+        except Exception as exc:
+            logger.info("Unable to query Ollama models from %s: %s", host, exc)
+    if not models:
+        models = list(OLLAMA_MODEL_FALLBACK_OPTIONS)
+    if selected and selected not in models:
+        models.insert(0, selected)
+    return models
+
 
 def verify_recaptcha(response):
     recaptcha_url = "https://www.google.com/recaptcha/api/siteverify"
@@ -604,20 +627,35 @@ def _checkbox(label: str, name: str, checked: bool = False):
 def _service_env_fields(service: str, ui_lang: str = "zh"):
     translator = service_map[service]
     fields = [Input(type="hidden", name=f"env_{i}", value="") for i in range(4)]
+    env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
         value = ConfigManager.get_env_by_translatername(translator, env[0], env[1])
+        env_values[label] = value
         input_type = "password" if "API_KEY" in label.upper() else "text"
         if hidden_secret_details and "MODEL" not in str(label).upper() and value:
             value = "***" if "API_KEY" in label.upper() else value
+        if service == "Ollama" and label == "OLLAMA_HOST":
+            child = Input(
+                type=input_type,
+                name=f"env_{i}",
+                value=value or "",
+                autocomplete="off",
+                hx_get="/ollama-models",
+                hx_trigger="change delay:300ms",
+                hx_target="#ollama-model-field",
+                hx_include="[name='env_0'],[name='env_1']",
+            )
+            fields[i] = _field(label, child)
+            continue
         if service == "Ollama" and label == "OLLAMA_MODEL":
-            choices = list(OLLAMA_MODEL_OPTIONS)
-            if value and value not in choices:
-                choices.insert(0, value)
+            choices = _ollama_model_options(env_values.get("OLLAMA_HOST"), value)
             child = Select(
                 *[_value_option(choice, choice, value) for choice in choices],
                 name=f"env_{i}",
             )
+            fields[i] = Div(_field(label, child), id="ollama-model-field")
+            continue
         else:
             child = Input(
                 type=input_type,
@@ -625,10 +663,7 @@ def _service_env_fields(service: str, ui_lang: str = "zh"):
                 value=value or "",
                 autocomplete="off",
             )
-        fields[i] = _field(
-            label,
-            child,
-        )
+        fields[i] = _field(label, child)
     if translator.CustomPrompt:
         fields[-1] = _field(_t(ui_lang, "custom_prompt"), Textarea("", name="prompt", rows=5))
     else:
@@ -1140,6 +1175,25 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         if service not in service_map:
             service = enabled_services[0]
         return _service_env_fields(service, ui_lang)
+
+    @rt("/ollama-models")
+    def ollama_models(req, env_0: str = "", env_1: str = ""):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        host = env_0 or service_map["Ollama"].envs["OLLAMA_HOST"]
+        selected = env_1 or service_map["Ollama"].envs["OLLAMA_MODEL"]
+        choices = _ollama_model_options(host, selected)
+        return Div(
+            _field(
+                "OLLAMA_MODEL",
+                Select(
+                    *[_value_option(choice, choice, selected) for choice in choices],
+                    name="env_1",
+                ),
+            ),
+            id="ollama-model-field",
+        )
 
     @rt("/favicon.ico")
     def favicon():
