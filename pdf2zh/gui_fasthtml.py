@@ -717,14 +717,14 @@ def setup_gui(
 
     import uvicorn
 
-    bind_addresses = []
+    bind_addresses = ["0.0.0.0", "127.0.0.1"]
     if _has_ipv6():
         bind_addresses.append("::")
-    bind_addresses.append("0.0.0.0")
-    bind_addresses.append("127.0.0.1")
 
     for addr in bind_addresses:
         try:
+            print(f"Starting FastHTML GUI on http://{addr}:{server_port}")
+            print(f"Open locally at http://127.0.0.1:{server_port}")
             webbrowser.open(f"http://127.0.0.1:{server_port}")
             uvicorn.run(app, host=addr, port=server_port)
             return
