@@ -381,7 +381,12 @@ def _service_env_fields(service: str):
     return Div(*fields, id="env-fields", cls="stack")
 
 
-def _result_panel(mono: str | None = None, dual: str | None = None, error: str | None = None):
+def _result_panel(
+    mono: str | None = None,
+    dual: str | None = None,
+    error: str | None = None,
+    autohide: bool = False,
+):
     if error:
         return Div(H2("Translation failed"), P(error), cls="result error", id="result")
     if not mono or not dual:
@@ -394,6 +399,17 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
     dual_view_url = f"{dual_url}#view=FitH&spread=even"
     return Div(
         H2("Translated"),
+        Div(
+            Label(
+                Input(
+                    type="checkbox",
+                    id="result-autohide-toggle",
+                    checked=autohide,
+                ),
+                "Autohide",
+            ),
+            cls="toggle-row",
+        ),
         Div(
             Label(
                 Input(
@@ -436,6 +452,9 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
                 input.addEventListener('change', (event) => {
                     document.getElementById('translated-frame').src = event.target.dataset.url;
                 });
+            });
+            document.getElementById('result-autohide-toggle')?.addEventListener('change', (event) => {
+                document.querySelector('.app-shell')?.classList.toggle('autohide', event.target.checked);
             });
             """
         ),
@@ -815,7 +834,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 )
                 return _page(
                     Div(A("Start another translation", href="/", cls="button secondary"), cls="actions"),
-                    _result_panel(mono, dual),
+                    _result_panel(mono, dual, autohide=autohide),
                     autohide=autohide,
                 )
             except Exception as exc:
