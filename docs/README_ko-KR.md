@@ -183,7 +183,7 @@ Python 환경을 미리 설치할 필요가 없습니다.
 | `-t`           | [멀티스레드](#threads)                                                                                           | `pdf2zh example.pdf -t 1`                      |
 | `-o`           | 출력 디렉토리                                                                                                    | `pdf2zh example.pdf -o output`                 |
 | `-f`, `-c`     | [예외](#exceptions)                                                                                              | `pdf2zh example.pdf -f "(MS.*)"`               |
-| `--share`      | [gradio 공개 링크 얻기]                                                                                          | `pdf2zh -i --share`                            |
+| `--share`      | [FastHTML GUI에서는 지원되지 않음]                                                                                 | `pdf2zh -i --share`                            |
 | `--authorized` | [[웹 인증 및 사용자 정의 인증 페이지 추가](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.)] | `pdf2zh -i --authorized users.txt [auth.html]` |
 | `--prompt`     | [사용자 정의 대형 모델 프롬프트 사용]                                                                            | `pdf2zh --prompt [prompt.txt]`                 |
 | `--onnx`       | [사용자 정의 DocLayout-YOLO ONNX 모델 사용]                                                                      | `pdf2zh --onnx [onnx/model/path]`              |
@@ -359,7 +359,7 @@ curl http://localhost:11008/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a -X
 - 문서 병합: [PyMuPDF](https://github.com/pymupdf/PyMuPDF)
 - 문서 파싱: [Pdfminer.six](https://github.com/pdfminer/pdfminer.six)
 - 문서 추출: [MinerU](https://github.com/opendatalab/MinerU)
-- 문서 미리보기: [Gradio PDF](https://github.com/freddyaboulton/gradio-pdf)
+- 문서 미리보기: 브라우저 기본 PDF 미리보기
 - 멀티스레드 번역: [MathTranslate](https://github.com/SUSYUSTC/MathTranslate)
 - 레이아웃 파싱: [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
 - 문서 표준: [PDF Explained](https://zxyle.github.io/PDF-Explained/), [PDF Cheat Sheets](https://pdfa.org/resource/pdf-cheat-sheets/)

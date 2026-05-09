@@ -176,7 +176,7 @@ set HF_ENDPOINT=https://hf-mirror.com
 | `-t`  | [多執行緒](#threads) | `pdf2zh example.pdf -t 1` |
 | `-o`  | 輸出目錄 | `pdf2zh example.pdf -o output` |
 | `-f`, `-c` | [例外規則](#exceptions) | `pdf2zh example.pdf -f "(MS.*)"` |
-| `--share` | [獲取 gradio 公開連結] | `pdf2zh -i --share` |
+| `--share` | [FastHTML GUI 尚未支援] | `pdf2zh -i --share` |
 | `--authorized` | [[添加網頁認證及自訂認證頁面](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.)] | `pdf2zh -i --authorized users.txt [auth.html]` |
 | `--prompt` | [使用自訂的大模型 Prompt] | `pdf2zh --prompt [prompt.txt]` |
 | `--onnx` | [使用自訂的 DocLayout-YOLO ONNX 模型] | `pdf2zh --onnx [onnx/model/path]` |
@@ -343,7 +343,7 @@ curl http://localhost:11008/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a -X
 - 文件合併：[PyMuPDF](https://github.com/pymupdf/PyMuPDF)
 - 文件解析：[Pdfminer.six](https://github.com/pdfminer/pdfminer.six)
 - 文件提取：[MinerU](https://github.com/opendatalab/MinerU)
-- 文件預覽：[Gradio PDF](https://github.com/freddyaboulton/gradio-pdf)
+- 文件預覽：瀏覽器原生 PDF 預覽
 - 多執行緒翻譯：[MathTranslate](https://github.com/SUSYUSTC/MathTranslate)
 - 版面解析：[DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
 - PDF 標準：[PDF Explained](https://zxyle.github.io/PDF-Explained/)、[PDF Cheat Sheets](https://pdfa.org/resource/pdf-cheat-sheets/)

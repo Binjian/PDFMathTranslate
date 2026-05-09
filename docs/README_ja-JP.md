@@ -180,14 +180,14 @@ Python環境を事前にインストールする必要はありません
 | `-t`  | [マルチスレッド](#threads) | `pdf2zh example.pdf -t 1` |
 | `-o`  | 出力ディレクトリ | `pdf2zh example.pdf -o output` |
 | `-f`, `-c` | [例外](#exceptions) | `pdf2zh example.pdf -f "(MS.*)"` |
-| `--share` | [gradio公開リンクを取得] | `pdf2zh -i --share` |
+| `--share` | [FastHTML GUIでは未対応] | `pdf2zh -i --share` |
 | `--authorized` | [[ウェブ認証とカスタム認証ページの追加](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.)] | `pdf2zh -i --authorized users.txt [auth.html]` |
 | `--prompt` | [カスタムビッグモデルのプロンプトを使用する] | `pdf2zh --prompt [prompt.txt]` |
 | `--onnx` | [カスタムDocLayout-YOLO ONNXモデルの使用] | `pdf2zh --onnx [onnx/model/path]` |
 | `--serverport` | [カスタムWebUIポートを使用する] | `pdf2zh --serverport 7860` |
 | `--dir` | [batch translate] | `pdf2zh --dir /path/to/translate/` |
 | `--config` | [configuration file](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#cofig) | `pdf2zh --config /path/to/config/config.json` |
-| `--serverport` | [custom gradio server port] | `pdf2zh --serverport 7860` |
+| `--serverport` | [custom WebUI server port] | `pdf2zh --serverport 7860` |
 
 <h3 id="partial">全文または部分的なドキュメント翻訳</h3>
 
@@ -362,7 +362,7 @@ curl http://localhost:11008/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a -X
 
 - ドキュメントの抽出：[MinerU](https://github.com/opendatalab/MinerU)
 
-- ドキュメントプレビュー：[Gradio PDF](https://github.com/freddyaboulton/gradio-pdf)
+- ドキュメントプレビュー：ブラウザー標準の PDF プレビュー
 
 - マルチスレッド翻訳：[MathTranslate](https://github.com/SUSYUSTC/MathTranslate)
 
