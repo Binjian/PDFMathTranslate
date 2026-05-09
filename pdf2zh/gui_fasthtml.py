@@ -444,13 +444,14 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
     )
 
 
-def _preview_panel(filename: str | None = None):
+def _preview_panel(filename: str | None = None, autohide: bool = False):
     src = f"/file?name={quote(filename)}" if filename else ""
     return Div(
         H2("Preview"),
         Iframe(src=src, title="Document Preview"),
         id="preview-panel",
         cls="preview",
+        data_autohide="true" if autohide else "false",
     )
 
 
@@ -479,7 +480,7 @@ def _authorized(req, user_list: list[tuple[str, str]], auth_message: str):
     return None
 
 
-def _page(*children):
+def _page(*children, autohide: bool = False):
     recaptcha = []
     if flag_demo:
         recaptcha = [
@@ -514,9 +515,20 @@ def _page(*children):
             Header(
                 H1(A("PDFMathTranslate @ GitHub", href="https://github.com/Byaidu/PDFMathTranslate")),
                 P("PDF translation with preserved formats"),
+                cls="page-header",
+            ),
+            Button(
+                "Show controls",
+                type="button",
+                cls="autohide-exit secondary",
+                onclick=(
+                    "document.querySelector('.app-shell')?.classList.remove('autohide');"
+                    "const toggle=document.getElementById('autohide-toggle');"
+                    "if(toggle) toggle.checked=false;"
+                ),
             ),
             *children,
-            cls="app-shell",
+            cls=f"app-shell{' autohide' if autohide else ''}",
         ),
     )
 
@@ -535,18 +547,27 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 header { margin-bottom: 1.25rem; }
                 header h1 { font-size: 1.8rem; margin-bottom: .25rem; }
                 .layout { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 1.25rem; align-items: start; }
-                .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 1rem; }
+                .control-panel, .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 1rem; }
                 .preview, .result { width: 100%; grid-column: 1 / -1; }
                 .stack { display: grid; gap: .75rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+                .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+                .toggle-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
+                .autohide-exit { display: none; position: fixed; top: .5rem; right: 1rem; z-index: 10; width: auto; padding: .35rem .65rem; }
                 .radio-row { display: flex; gap: 1rem; align-items: center; margin-bottom: .75rem; }
                 .radio-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
-                .radio-row input { margin: 0; }
+                .radio-row input, .toggle-row input { margin: 0; }
                 .secondary { background: #eef2f7; color: #243042; border-color: #d8dee8; }
                 .muted { color: #687386; font-size: .9rem; }
                 .error { border-color: #d33; color: #9b1c1c; }
                 iframe { display: block; width: 100%; height: min(82vh, 1200px); border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
+                .autohide { padding-top: .5rem; }
+                .autohide .page-header, .autohide .control-panel { display: none; }
+                .autohide .autohide-exit { display: inline-flex; }
+                .autohide .layout { display: block; }
+                .autohide .preview h2, .autohide .result h2 { margin-bottom: .5rem; }
+                .autohide iframe { height: calc(100vh - 6.5rem); }
                 details { margin-top: .75rem; }
                 @media (max-width: 900px) {
                     .layout, .split { grid-template-columns: 1fr; }
@@ -566,6 +587,33 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         default_service = enabled_services[0]
         form = Form(
             Input(type="hidden", name="session_id", value=session_id),
+            Div(
+                Label(
+                    Input(
+                        type="checkbox",
+                        name="autohide",
+                        value="true",
+                        id="autohide-toggle",
+                    ),
+                    "Autohide",
+                ),
+                cls="toggle-row",
+            ),
+            Script(
+                """
+                document.getElementById('autohide-toggle')?.addEventListener('change', (event) => {
+                    document.querySelector('.app-shell')?.classList.toggle('autohide', event.target.checked);
+                });
+                document.body.addEventListener('htmx:afterSwap', (event) => {
+                    if (event.detail.target?.id === 'preview-panel') {
+                        const panel = event.detail.target;
+                        const enabled = panel.dataset.autohide === 'true';
+                        document.getElementById('autohide-toggle').checked = enabled;
+                        document.querySelector('.app-shell')?.classList.toggle('autohide', enabled);
+                    }
+                });
+                """
+            ),
             _field(
                 "Type",
                 Select(_option("File", "File"), _option("Link", "File"), name="file_type"),
@@ -582,6 +630,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         hx_target="#preview-panel",
                         hx_swap="outerHTML",
                         hx_encoding="multipart/form-data",
+                        hx_include="[name='autohide']",
                     ),
                 ),
                 _field("Link", Input(type="url", name="link_input", placeholder="https://...")),
@@ -678,7 +727,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         )
         return _page(
             Div(
-                Div(H2("File"), form, details, cls="panel"),
+                Div(H2("File"), form, details, cls="control-panel"),
                 Div(_preview_panel(), _result_panel(), cls="stack"),
                 cls="layout",
             )
@@ -712,17 +761,18 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         if auth:
             return auth
         form = await req.form()
+        autohide = bool(form.get("autohide"))
         upload = form.get("file_input")
         if not isinstance(upload, UploadFile) or not upload.filename:
-            return _preview_panel()
+            return _preview_panel(autohide=autohide)
         safe_name = os.path.basename(upload.filename)
         suffix = Path(safe_name).suffix.lower()
         if suffix != ".pdf":
-            return _preview_panel()
+            return _preview_panel(autohide=autohide)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         preview_path = OUTPUT_DIR / f"{uuid.uuid4()}-{safe_name}"
         preview_path.write_bytes(await upload.read())
-        return _preview_panel(preview_path.name)
+        return _preview_panel(preview_path.name, autohide=autohide)
 
     @rt("/translate")
     async def translate(req):
@@ -730,6 +780,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         if auth:
             return auth
         form = await req.form()
+        autohide = bool(form.get("autohide"))
         upload = form.get("file_input")
         uploaded_path = None
         if isinstance(upload, UploadFile) and upload.filename:
@@ -765,6 +816,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 return _page(
                     Div(A("Start another translation", href="/", cls="button secondary"), cls="actions"),
                     _result_panel(mono, dual),
+                    autohide=autohide,
                 )
             except Exception as exc:
                 logger.exception("GUI translation failed")
