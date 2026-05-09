@@ -210,6 +210,10 @@ UI_TEXT = {
         "progress_starting": "Starting translation...",
         "progress_cancel": "Cancel translation",
         "progress_wait": "Preparing progress...",
+        "run_settings": "Settings used for this translation",
+        "source": "Source",
+        "yes": "Yes",
+        "no": "No",
     },
     "zh": {
         "title": "PDFMathTranslate - 保留格式的 PDF 翻译",
@@ -257,6 +261,10 @@ UI_TEXT = {
         "progress_starting": "正在开始翻译...",
         "progress_cancel": "取消翻译",
         "progress_wait": "正在准备进度...",
+        "run_settings": "本次翻译设置",
+        "source": "来源",
+        "yes": "是",
+        "no": "否",
     },
 }
 
@@ -837,12 +845,81 @@ def _preview_panel(filename: str | None = None, autohide: bool = False, ui_lang:
     )
 
 
+def _bool_label(value: bool, ui_lang: str) -> str:
+    return _t(ui_lang, "yes" if value else "no")
+
+
+def _run_settings(params: dict[str, T.Any], ui_lang: str) -> list[tuple[str, str]]:
+    service = str(params.get("service") or enabled_services[0])
+    file_type = str(params.get("file_type") or "File")
+    if file_type == "File":
+        source = Path(str(params.get("file_input") or "")).name
+    else:
+        source = str(params.get("link_input") or "")
+
+    page_range = str(params.get("page_range") or "All")
+    pages = (PAGE_LABELS_ZH.get(page_range, page_range) if _ui_lang(ui_lang) == "zh" else page_range)
+    if page_range == "Others" and params.get("page_input"):
+        pages = f"{pages}: {params['page_input']}"
+
+    mode = str(params.get("mode_choice") or "fast")
+    if _ui_lang(ui_lang) == "zh":
+        mode = MODE_LABELS_ZH.get(mode, mode)
+
+    rows = [
+        (_t(ui_lang, "source"), source or "-"),
+        (_t(ui_lang, "service"), service),
+        (_t(ui_lang, "translate_from"), str(params.get("lang_from") or "-")),
+        (_t(ui_lang, "translate_to"), str(params.get("lang_to") or "-")),
+        (_t(ui_lang, "pages"), pages),
+        (_t(ui_lang, "threads"), str(params.get("threads") or "-")),
+        (_t(ui_lang, "translation_mode"), mode),
+        (_t(ui_lang, "skip_subset_fonts"), _bool_label(bool(params.get("skip_subset_fonts")), ui_lang)),
+        (_t(ui_lang, "ignore_cache"), _bool_label(bool(params.get("ignore_cache")), ui_lang)),
+    ]
+    if params.get("vfont"):
+        rows.append((_t(ui_lang, "vfont"), str(params["vfont"])))
+    if params.get("prompt"):
+        rows.append((_t(ui_lang, "custom_prompt"), str(params["prompt"])))
+
+    translator = service_map.get(service)
+    if translator:
+        for i, env_name in enumerate(translator.envs.keys()):
+            if str(env_name).upper().endswith("API_KEY"):
+                continue
+            value = str(params.get(f"env_{i}") or "").strip()
+            if value:
+                rows.append((env_name, value))
+    return rows
+
+
+def _run_settings_panel(settings: list[tuple[str, str]], ui_lang: str):
+    if not settings:
+        return ""
+    return Details(
+        Summary(_t(ui_lang, "run_settings")),
+        Table(
+            Tbody(
+                *[
+                    Tr(Th(label, scope="row"), Td(value))
+                    for label, value in settings
+                ]
+            )
+        ),
+        open=True,
+        cls="run-settings",
+    )
+
+
 def _progress_page(session_id: str, ui_lang: str = "zh", autohide: bool = False):
+    job = translation_jobs.get(session_id, {})
+    settings = job.get("settings", [])
     return _page(
         Div(
             H2(_t(ui_lang, "progress_title")),
             Progress(id="translation-progress", value="0", max="100"),
             P(_t(ui_lang, "progress_wait"), id="translation-progress-text", cls="muted"),
+            _run_settings_panel(settings, ui_lang),
             Form(
                 Input(type="hidden", name="session_id", value=session_id),
                 Button(
@@ -998,6 +1075,11 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .stack { display: grid; gap: .3rem; }
                 .ollama-host-field { display: grid; gap: .25rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
+                .run-settings { margin-top: .75rem; }
+                .run-settings summary { font-weight: 600; }
+                .run-settings table { margin: .35rem 0 .75rem; }
+                .run-settings th, .run-settings td { padding: .25rem .4rem; vertical-align: top; }
+                .run-settings th { width: 12rem; color: #526071; }
                 .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
                 .result-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; margin-bottom: .75rem; }
                 .result-toolbar h2 { margin: 0; }
@@ -1342,6 +1424,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             "env_2": form.get("env_2", ""),
             "env_3": form.get("env_3", ""),
         }
+        translation_jobs[session_id]["settings"] = _run_settings(params, ui_lang)
 
         def run_translation_job():
             ctx = multiprocessing.get_context("spawn")
