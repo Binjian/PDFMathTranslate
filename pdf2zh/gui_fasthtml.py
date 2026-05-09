@@ -1233,7 +1233,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .file-drop-zone.drag-over, .preview.drag-over { background: #eef6ff; border-color: #3b82f6; }
                 .file-drop-zone .drop-hint { color: #526071; font-size: .78rem; line-height: 1.2; }
                 .preview, .result { width: 100%; }
-                .preview { border: 1px dashed transparent; border-radius: 8px; transition: background .15s ease, border-color .15s ease; }
+                .preview { border: 1px dashed #a8b3c4; border-radius: 8px; padding: .45rem; background: #f8fafc; transition: background .15s ease, border-color .15s ease; }
                 .result { grid-column: 1 / -1; }
                 .stack { display: grid; gap: .3rem; }
                 .ollama-host-field { display: grid; gap: .25rem; }
@@ -1425,6 +1425,16 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             ),
             Script(
                 """
+                // Prevent browser default file handling at document level
+                document.addEventListener('dragover', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                });
+                document.addEventListener('drop', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                });
+                
                 const dropTargets = [
                     document.getElementById('file-drop-zone'),
                     document.getElementById('preview-panel'),
@@ -1442,26 +1452,26 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         fileInput.dispatchEvent(new Event('change', { bubbles: true }));
                     };
                     dropTargets.forEach((target) => {
-                        ['dragenter', 'dragover'].forEach((name) => {
-                            target.addEventListener(name, (event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                target.classList.add('drag-over');
-                            });
+                        target.addEventListener('dragenter', (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            target.classList.add('drag-over');
                         });
-                        ['dragleave', 'drop'].forEach((name) => {
-                            target.addEventListener(name, (event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                target.classList.remove('drag-over');
-                            });
+                        target.addEventListener('dragover', (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        });
+                        target.addEventListener('dragleave', (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            target.classList.remove('drag-over');
                         });
                         target.addEventListener('drop', (event) => {
                             event.preventDefault();
                             event.stopPropagation();
                             target.classList.remove('drag-over');
                             useDroppedFile(event);
-                        });
+                        }, true);
                     });
                 }
                 """
