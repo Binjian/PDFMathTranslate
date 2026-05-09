@@ -643,6 +643,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             service = enabled_services[0]
         return _service_env_fields(service)
 
+    @rt("/favicon.ico")
+    def favicon():
+        return Response(status_code=204)
+
     @rt("/cancel")
     async def cancel(req):
         auth = _authorized(req, user_list, auth_message)
