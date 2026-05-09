@@ -1452,118 +1452,136 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             ),
             Script(
                 """
-                const fileInput = document.getElementById('file-input');
-                const fileDropZone = document.getElementById('file-drop-zone');
-                const previewPanel = document.getElementById('preview-panel');
-                const previewOverlay = document.getElementById('preview-drop-overlay');
-                const dropTargets = [fileDropZone, previewPanel, previewOverlay].filter(Boolean);
+                if (!window.__pdf2zhDropInit) {
+                    window.__pdf2zhDropInit = true;
 
-                const preventBrowserDrop = (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                };
+                    const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+                    const getFileInput = () => document.getElementById('file-input');
+                    const getFileDropZone = () => document.getElementById('file-drop-zone');
+                    const getPreviewPanel = () => document.getElementById('preview-panel');
+                    const isPreviewTarget = (target) => target?.closest?.('#preview-panel, #preview-drop-overlay');
+                    const isFileDropTarget = (target) => target?.closest?.('#file-drop-zone');
 
-                const setPreviewDropState = (enabled) => {
-                    if (previewPanel) previewPanel.classList.toggle('drag-over', enabled);
-                };
+                    const preventDefaultOnly = (event) => {
+                        event.preventDefault();
+                    };
 
-                const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+                    const stopAndPrevent = (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    };
 
-                let pageDragDepth = 0;
+                    const setPreviewDropState = (enabled) => {
+                        const previewPanel = getPreviewPanel();
+                        if (previewPanel) previewPanel.classList.toggle('drag-over', enabled);
+                    };
 
-                const beginPageDrag = (event) => {
-                    if (!hasDraggedFiles(event)) return;
-                    preventBrowserDrop(event);
-                    pageDragDepth += 1;
-                    document.body.classList.add('file-dragging');
-                };
+                    const setFileDropState = (enabled) => {
+                        const fileDropZone = getFileDropZone();
+                        if (fileDropZone) fileDropZone.classList.toggle('drag-over', enabled);
+                    };
 
-                const endPageDrag = (event) => {
-                    if (!hasDraggedFiles(event) && event.type !== 'drop') return;
-                    preventBrowserDrop(event);
-                    pageDragDepth = Math.max(0, pageDragDepth - 1);
-                    if (pageDragDepth === 0) {
+                    const clearDropState = () => {
                         document.body.classList.remove('file-dragging');
                         setPreviewDropState(false);
-                    }
-                };
+                        setFileDropState(false);
+                    };
 
-                if (fileInput && dropTargets.length) {
                     const useDroppedFile = (event) => {
+                        const fileInput = getFileInput();
                         const files = event.dataTransfer?.files;
-                        if (!files || files.length === 0) return;
+                        if (!fileInput || !files || files.length === 0) return;
                         const transfer = new DataTransfer();
                         transfer.items.add(files[0]);
                         fileInput.files = transfer.files;
                         const fileType = document.querySelector('[name="file_type"]');
                         if (fileType) fileType.value = 'File';
-                        pageDragDepth = 0;
-                        document.body.classList.remove('file-dragging');
-                        setPreviewDropState(false);
+                        clearDropState();
                         fileInput.dispatchEvent(new Event('change', { bubbles: true }));
                     };
 
+                    let pageDragDepth = 0;
+
                     ['dragenter', 'dragover', 'drop'].forEach((name) => {
-                        window.addEventListener(name, preventBrowserDrop, true);
-                        document.addEventListener(name, preventBrowserDrop, true);
+                        window.addEventListener(name, (event) => {
+                            if (!hasDraggedFiles(event)) return;
+                            preventDefaultOnly(event);
+                        }, true);
+                        document.addEventListener(name, (event) => {
+                            if (!hasDraggedFiles(event)) return;
+                            preventDefaultOnly(event);
+                        }, true);
                     });
-                    window.addEventListener('dragenter', beginPageDrag, true);
-                    window.addEventListener('dragleave', endPageDrag, true);
-                    window.addEventListener('drop', (event) => {
-                        pageDragDepth = 0;
-                        document.body.classList.remove('file-dragging');
-                        setPreviewDropState(false);
-                        preventBrowserDrop(event);
+
+                    window.addEventListener('dragenter', (event) => {
+                        if (!hasDraggedFiles(event)) return;
+                        preventDefaultOnly(event);
+                        pageDragDepth += 1;
+                        document.body.classList.add('file-dragging');
                     }, true);
 
-                    if (fileDropZone) {
-                        ['dragenter', 'dragover'].forEach((name) => {
-                            fileDropZone.addEventListener(name, (event) => {
-                                preventBrowserDrop(event);
-                                fileDropZone.classList.add('drag-over');
-                            });
-                        });
-                        ['dragleave', 'drop'].forEach((name) => {
-                            fileDropZone.addEventListener(name, (event) => {
-                                preventBrowserDrop(event);
-                                fileDropZone.classList.remove('drag-over');
-                            });
-                        });
-                        fileDropZone.addEventListener('drop', useDroppedFile);
-                    }
+                    window.addEventListener('dragleave', (event) => {
+                        if (!document.body.classList.contains('file-dragging')) return;
+                        preventDefaultOnly(event);
+                        pageDragDepth = Math.max(0, pageDragDepth - 1);
+                        if (pageDragDepth === 0) clearDropState();
+                    }, true);
 
-                    if (previewPanel && previewOverlay) {
-                        const beginPreviewDrag = (event) => {
-                            preventBrowserDrop(event);
+                    window.addEventListener('drop', (event) => {
+                        if (!hasDraggedFiles(event)) return;
+                        preventDefaultOnly(event);
+                        pageDragDepth = 0;
+                        if (!isPreviewTarget(event.target) && !isFileDropTarget(event.target)) clearDropState();
+                    }, true);
+
+                    document.addEventListener('dragenter', (event) => {
+                        if (!hasDraggedFiles(event)) return;
+                        if (isPreviewTarget(event.target)) {
+                            stopAndPrevent(event);
                             setPreviewDropState(true);
-                        };
+                            return;
+                        }
+                        if (isFileDropTarget(event.target)) {
+                            stopAndPrevent(event);
+                            setFileDropState(true);
+                        }
+                    });
 
-                        const updatePreviewDrag = (event) => {
-                            preventBrowserDrop(event);
+                    document.addEventListener('dragover', (event) => {
+                        if (!hasDraggedFiles(event)) return;
+                        if (isPreviewTarget(event.target)) {
+                            stopAndPrevent(event);
                             setPreviewDropState(true);
-                        };
+                            return;
+                        }
+                        if (isFileDropTarget(event.target)) {
+                            stopAndPrevent(event);
+                            setFileDropState(true);
+                        }
+                    });
 
-                        const endPreviewDrag = (event) => {
-                            preventBrowserDrop(event);
-                            if (!previewPanel.contains(event.relatedTarget)) setPreviewDropState(false);
-                        };
+                    document.addEventListener('dragleave', (event) => {
+                        if (isPreviewTarget(event.target)) {
+                            stopAndPrevent(event);
+                            const previewPanel = getPreviewPanel();
+                            if (!previewPanel?.contains(event.relatedTarget)) setPreviewDropState(false);
+                            return;
+                        }
+                        if (isFileDropTarget(event.target)) {
+                            stopAndPrevent(event);
+                            const fileDropZone = getFileDropZone();
+                            if (!fileDropZone?.contains(event.relatedTarget)) setFileDropState(false);
+                        }
+                    });
 
-                        previewPanel.addEventListener('dragenter', beginPreviewDrag);
-                        previewPanel.addEventListener('dragover', updatePreviewDrag);
-                        previewPanel.addEventListener('drop', (event) => {
-                            preventBrowserDrop(event);
+                    document.addEventListener('drop', (event) => {
+                        if (!hasDraggedFiles(event)) return;
+                        if (isPreviewTarget(event.target) || isFileDropTarget(event.target)) {
+                            stopAndPrevent(event);
+                            pageDragDepth = 0;
                             useDroppedFile(event);
-                        });
-                        previewPanel.addEventListener('dragleave', endPreviewDrag);
-
-                        previewOverlay.addEventListener('dragenter', beginPreviewDrag);
-                        previewOverlay.addEventListener('dragover', updatePreviewDrag);
-                        previewOverlay.addEventListener('dragleave', endPreviewDrag);
-                        previewOverlay.addEventListener('drop', (event) => {
-                            preventBrowserDrop(event);
-                            useDroppedFile(event);
-                        });
-                    }
+                        }
+                    });
                 }
                 """
             ),
