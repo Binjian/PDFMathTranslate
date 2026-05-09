@@ -780,6 +780,32 @@ def _service_env_fields(
     return Div(*fields, id="env-fields", cls="stack")
 
 
+def _output_file_path(name: str) -> Path | None:
+    name = os.path.basename(name)
+    path = (OUTPUT_DIR / name).resolve()
+    root = OUTPUT_DIR.resolve()
+    if root not in path.parents and path != root:
+        return None
+    if not path.exists() or not path.is_file():
+        return None
+    return path
+
+
+def _translated_download_name(name: str, variant: str) -> str:
+    stem = Path(os.path.basename(name)).stem
+    suffix = f"-{variant}"
+    if stem.endswith(suffix):
+        stem = stem[: -len(suffix)]
+    parts = stem.split("-", 5)
+    if len(parts) == 6:
+        try:
+            uuid.UUID("-".join(parts[:5]))
+            stem = parts[5]
+        except ValueError:
+            pass
+    return f"{stem}_{variant}.pdf"
+
+
 def _result_panel(
     mono: str | None = None,
     dual: str | None = None,
@@ -797,6 +823,10 @@ def _result_panel(
     dual_url = f"/file?name={quote(dual_name)}"
     mono_view_url = f"{mono_url}#view=FitH"
     dual_view_url = f"/pdf-viewer?name={quote(dual_name)}&view=facing"
+    mono_download_name = _translated_download_name(mono_name, "mono")
+    dual_download_name = _translated_download_name(dual_name, "dual")
+    mono_download_url = f"/download?name={quote(mono_name)}&variant=mono"
+    dual_download_url = f"/download?name={quote(dual_name)}&variant=dual"
     return Div(
         Div(
             H2(_t(ui_lang, "translated")),
@@ -836,12 +866,14 @@ def _result_panel(
             Div(
                 A(
                     _t(ui_lang, "download_mono"),
-                    href=mono_url,
+                    href=mono_download_url,
+                    download=mono_download_name,
                     cls="button",
                 ),
                 A(
                     _t(ui_lang, "download_dual"),
-                    href=dual_url,
+                    href=dual_download_url,
+                    download=dual_download_name,
                     cls="button secondary",
                 ),
                 cls="actions",
@@ -1729,27 +1761,36 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
-        name = os.path.basename(name)
-        path = (OUTPUT_DIR / name).resolve()
-        root = OUTPUT_DIR.resolve()
-        if root not in path.parents and path != root:
-            return Response("Not found", status_code=404)
-        if not path.exists() or not path.is_file():
+        path = _output_file_path(name)
+        if path is None:
             return Response("Not found", status_code=404)
         return FileResponse(path)
+
+    @rt("/download")
+    def download(req, name: str, variant: str = "mono"):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        if variant not in {"mono", "dual"}:
+            return Response("Not found", status_code=404)
+        path = _output_file_path(name)
+        if path is None:
+            return Response("Not found", status_code=404)
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            filename=_translated_download_name(path.name, variant),
+        )
 
     @rt("/pdf-viewer")
     def pdf_viewer(req, name: str, view: str = "facing"):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
-        name = os.path.basename(name)
-        path = (OUTPUT_DIR / name).resolve()
-        root = OUTPUT_DIR.resolve()
-        if root not in path.parents and path != root:
+        path = _output_file_path(name)
+        if path is None:
             return Response("Not found", status_code=404)
-        if not path.exists() or not path.is_file():
-            return Response("Not found", status_code=404)
+        name = path.name
 
         pdf_url = f"/file?name={quote(name)}"
         facing = view == "facing"
