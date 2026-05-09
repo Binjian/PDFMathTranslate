@@ -396,7 +396,7 @@ def _result_panel(
     mono_url = f"/file?name={quote(mono_name)}"
     dual_url = f"/file?name={quote(dual_name)}"
     mono_view_url = f"{mono_url}#view=FitH"
-    dual_view_url = f"{dual_url}#view=FitH&spread=even"
+    dual_view_url = f"{dual_url}#view=FitH&spread=even&scroll=vertical"
     return Div(
         Div(
             H2("Translated"),
@@ -417,7 +417,6 @@ def _result_panel(
                         type="radio",
                         name="translated_view",
                         value="mono",
-                        checked=True,
                         data_url=mono_view_url,
                     ),
                     "Mono",
@@ -427,6 +426,7 @@ def _result_panel(
                         type="radio",
                         name="translated_view",
                         value="dual",
+                        checked=True,
                         data_url=dual_view_url,
                     ),
                     "Dual",
@@ -448,7 +448,7 @@ def _result_panel(
             ),
             cls="result-toolbar",
         ),
-        Iframe(id="translated-frame", src=mono_view_url, title="Translated Document"),
+        Iframe(id="translated-frame", src=dual_view_url, title="Translated Document"),
         Script(
             """
             document.querySelectorAll('input[name="translated_view"]').forEach((input) => {
