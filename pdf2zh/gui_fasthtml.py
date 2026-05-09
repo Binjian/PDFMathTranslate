@@ -379,6 +379,8 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
     dual_name = Path(dual).name
     mono_url = f"/file?name={quote(mono_name)}"
     dual_url = f"/file?name={quote(dual_name)}"
+    mono_view_url = f"{mono_url}#view=FitH"
+    dual_view_url = f"{dual_url}#view=FitH&spread=even"
     return Div(
         H2("Translated"),
         Div(
@@ -388,7 +390,7 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
                     name="translated_view",
                     value="mono",
                     checked=True,
-                    data_url=mono_url,
+                    data_url=mono_view_url,
                 ),
                 "Mono",
             ),
@@ -397,7 +399,7 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
                     type="radio",
                     name="translated_view",
                     value="dual",
-                    data_url=dual_url,
+                    data_url=dual_view_url,
                 ),
                 "Dual",
             ),
@@ -416,7 +418,7 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
             ),
             cls="actions",
         ),
-        Iframe(id="translated-frame", src=mono_url, title="Translated Document"),
+        Iframe(id="translated-frame", src=mono_view_url, title="Translated Document"),
         Script(
             """
             document.querySelectorAll('input[name="translated_view"]').forEach((input) => {
@@ -518,11 +520,12 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 """
                 :root { --pico-border-radius: 6px; }
                 body { background: #f7f8fb; }
-                .app-shell { max-width: 1440px; }
+                .app-shell { width: 100%; max-width: none; padding-left: 1rem; padding-right: 1rem; }
                 header { margin-bottom: 1.25rem; }
                 header h1 { font-size: 1.8rem; margin-bottom: .25rem; }
                 .layout { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 1.25rem; align-items: start; }
                 .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 1rem; }
+                .preview, .result { width: 100%; grid-column: 1 / -1; }
                 .stack { display: grid; gap: .75rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
@@ -532,7 +535,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .secondary { background: #eef2f7; color: #243042; border-color: #d8dee8; }
                 .muted { color: #687386; font-size: .9rem; }
                 .error { border-color: #d33; color: #9b1c1c; }
-                iframe { width: 100%; height: min(78vh, 1100px); border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
+                iframe { display: block; width: 100%; height: min(82vh, 1200px); border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
                 details { margin-top: .75rem; }
                 @media (max-width: 900px) {
                     .layout, .split { grid-template-columns: 1fr; }
