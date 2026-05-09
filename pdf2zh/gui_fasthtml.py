@@ -398,6 +398,26 @@ def stop_translate_file(session_id: str | None) -> None:
         translation_jobs[session_id]["error"] = "Translation cancelled"
 
 
+def shutdown_translation_jobs() -> None:
+    for session_id, job in list(translation_jobs.items()):
+        process = job.get("process")
+        if not process:
+            continue
+        logger.info("Stopping translation worker for session %s", session_id)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=3)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=1)
+        job["status"] = "error"
+        job["progress"] = 1.0
+        job["message"] = "Server stopped"
+        job["error"] = "Server stopped"
+        job.pop("process", None)
+    cancellation_event_map.clear()
+
+
 def _selected_pages(page_range: str, page_input: str) -> list[int] | None:
     if page_range != "Others":
         return page_map[page_range]
@@ -1814,13 +1834,21 @@ def setup_gui(
             print(f"Starting FastHTML GUI on http://{addr}:{server_port}")
             print(f"Open locally at http://127.0.0.1:{server_port}")
             webbrowser.open(f"http://127.0.0.1:{server_port}")
-            uvicorn.run(app, host=addr, port=server_port)
+            config = uvicorn.Config(app, host=addr, port=server_port)
+            server = uvicorn.Server(config)
+            server.run()
+            print("FastHTML GUI stopped.")
+            return
+        except KeyboardInterrupt:
+            print("\nShutting down FastHTML GUI...")
             return
         except Exception:
             print(
                 f"Error launching GUI using {addr}.\n"
                 "This may be caused by global mode of proxy software."
             )
+        finally:
+            shutdown_translation_jobs()
 
 
 if __name__ == "__main__":
