@@ -680,7 +680,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 
         return await anyio.to_thread.run_sync(run_translation)
 
-    @rt("/files/{name:path}")
+    @rt("/files/{name}")
     def files(req, name: str):
         auth = _authorized(req, user_list, auth_message)
         if auth:
