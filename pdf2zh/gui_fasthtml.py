@@ -753,7 +753,7 @@ def _page(*children, autohide: bool = False, ui_lang: str = "zh"):
         *recaptcha,
         Main(
             Header(
-                H1(A("PDFMathTranslate @ GitHub", href="https://github.com/Byaidu/PDFMathTranslate")),
+                H1(A("PDFMathTranslate on FastHTML", href="https://github.com/Binjian/PDFMathTranslate")),
                 P(_t(ui_lang, "subtitle")),
                 cls="page-header",
             ),
