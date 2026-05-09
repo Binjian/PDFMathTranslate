@@ -108,7 +108,7 @@ def create_parser() -> argparse.ArgumentParser:
     parse_params.add_argument(
         "--share",
         action="store_true",
-        help="Enable Gradio Share",
+        help="Request a public share link. Not supported by the FastHTML GUI.",
     )
     parse_params.add_argument(
         "--flask",
