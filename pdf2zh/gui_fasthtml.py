@@ -185,6 +185,7 @@ UI_TEXT = {
         "document_preview": "Document Preview",
         "file_section": "File",
         "file_limited": "File | < 5 MB",
+        "drop_file": "Drop a PDF here or choose a file",
         "type": "Type",
         "file_choice": "File",
         "link_choice": "Link",
@@ -238,6 +239,7 @@ UI_TEXT = {
         "document_preview": "文档预览",
         "file_section": "文件",
         "file_limited": "文件 | < 5 MB",
+        "drop_file": "拖入 PDF 文件，或点击选择文件",
         "type": "类型",
         "file_choice": "文件",
         "link_choice": "链接",
@@ -1258,6 +1260,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .control-panel summary { padding: .15rem 0; line-height: 1.2; }
                 .control-panel details > div { margin-top: .25rem; }
                 .control-panel .muted { font-size: .75rem; }
+                .file-drop-zone { display: grid; gap: .25rem; padding: .45rem; border: 1px dashed #a8b3c4; border-radius: 6px; background: #f8fafc; transition: background .15s ease, border-color .15s ease; }
+                .file-drop-zone.drag-over { background: #eef6ff; border-color: #3b82f6; }
+                .file-drop-zone .drop-hint { color: #526071; font-size: .78rem; line-height: 1.2; }
                 .preview, .result { width: 100%; }
                 .result { grid-column: 1 / -1; }
                 .stack { display: grid; gap: .3rem; }
@@ -1419,16 +1424,22 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             Div(
                 _field(
                     _t(ui_lang, "file_limited" if flag_demo else "file_section"),
-                    Input(
-                        type="file",
-                        name="file_input",
-                        accept=".pdf,.doc,.docx",
-                        hx_post="/preview",
-                        hx_trigger="change",
-                        hx_target="#preview-panel",
-                        hx_swap="outerHTML",
-                        hx_encoding="multipart/form-data",
-                        hx_include="[name='autohide'],[name='ui_lang']",
+                    Div(
+                        Span(_t(ui_lang, "drop_file"), cls="drop-hint"),
+                        Input(
+                            type="file",
+                            name="file_input",
+                            id="file-input",
+                            accept=".pdf,.doc,.docx",
+                            hx_post="/preview",
+                            hx_trigger="change",
+                            hx_target="#preview-panel",
+                            hx_swap="outerHTML",
+                            hx_encoding="multipart/form-data",
+                            hx_include="[name='autohide'],[name='ui_lang']",
+                        ),
+                        id="file-drop-zone",
+                        cls="file-drop-zone",
                     ),
                 ),
                 _field(
@@ -1441,6 +1452,38 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     ),
                 ),
                 cls="stack",
+            ),
+            Script(
+                """
+                const dropZone = document.getElementById('file-drop-zone');
+                const fileInput = document.getElementById('file-input');
+                if (dropZone && fileInput) {
+                    ['dragenter', 'dragover'].forEach((name) => {
+                        dropZone.addEventListener(name, (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            dropZone.classList.add('drag-over');
+                        });
+                    });
+                    ['dragleave', 'drop'].forEach((name) => {
+                        dropZone.addEventListener(name, (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            dropZone.classList.remove('drag-over');
+                        });
+                    });
+                    dropZone.addEventListener('drop', (event) => {
+                        const files = event.dataTransfer?.files;
+                        if (!files || files.length === 0) return;
+                        const transfer = new DataTransfer();
+                        transfer.items.add(files[0]);
+                        fileInput.files = transfer.files;
+                        const fileType = document.querySelector('[name="file_type"]');
+                        if (fileType) fileType.value = 'File';
+                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    });
+                }
+                """
             ),
             H2(_t(ui_lang, "option")),
             _field(
