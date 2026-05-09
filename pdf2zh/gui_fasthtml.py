@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import socket
+import threading
 import uuid
 import webbrowser
 from asyncio import CancelledError
@@ -17,7 +18,7 @@ import anyio
 from fasthtml.common import *
 import requests
 from starlette.datastructures import UploadFile
-from starlette.responses import FileResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 import tqdm
 
 from pdf2zh import __version__
@@ -158,6 +159,7 @@ else:
 
 hidden_secret_details: bool = bool(ConfigManager.get("HIDDEN_GRADIO_DETAILS"))
 cancellation_event_map = {}
+translation_jobs: dict[str, dict[str, T.Any]] = {}
 
 UI_TEXT = {
     "en": {
@@ -202,6 +204,10 @@ UI_TEXT = {
         "start_another": "Start another translation",
         "back": "Back",
         "custom_prompt": "Custom Prompt for llm",
+        "progress_title": "Translating",
+        "progress_starting": "Starting translation...",
+        "progress_cancel": "Cancel translation",
+        "progress_wait": "Preparing progress...",
     },
     "zh": {
         "title": "PDFMathTranslate - 保留格式的 PDF 翻译",
@@ -245,6 +251,10 @@ UI_TEXT = {
         "start_another": "继续翻译",
         "back": "返回",
         "custom_prompt": "大模型自定义提示词",
+        "progress_title": "正在翻译",
+        "progress_starting": "正在开始翻译...",
+        "progress_cancel": "取消翻译",
+        "progress_wait": "正在准备进度...",
     },
 }
 
@@ -319,6 +329,8 @@ def stop_translate_file(session_id: str | None) -> None:
     if session_id and session_id in cancellation_event_map:
         logger.info("Stopping translation for session %s", session_id)
         cancellation_event_map[session_id].set()
+    if session_id and session_id in translation_jobs:
+        translation_jobs[session_id]["message"] = "Cancellation requested"
 
 
 def _selected_pages(page_range: str, page_input: str) -> list[int] | None:
@@ -400,6 +412,13 @@ def translate_file(
     def progress_bar(t: tqdm.tqdm):
         desc = getattr(t, "desc", "Translating...") or "Translating..."
         total = getattr(t, "total", 0) or 1
+        if session_id in translation_jobs:
+            translation_jobs[session_id].update(
+                {
+                    "progress": min(0.99, max(0.0, t.n / total)),
+                    "message": desc,
+                }
+            )
         logger.info("%s %.0f%%", desc, 100 * t.n / total)
 
     try:
@@ -631,6 +650,48 @@ def _preview_panel(filename: str | None = None, autohide: bool = False, ui_lang:
         cls="preview",
         data_autohide="true" if autohide else "false",
         data_ui_lang=_ui_lang(ui_lang),
+    )
+
+
+def _progress_page(session_id: str, ui_lang: str = "zh", autohide: bool = False):
+    return _page(
+        Div(
+            H2(_t(ui_lang, "progress_title")),
+            Progress(id="translation-progress", value="0", max="100"),
+            P(_t(ui_lang, "progress_wait"), id="translation-progress-text", cls="muted"),
+            Form(
+                Input(type="hidden", name="session_id", value=session_id),
+                Button(
+                    _t(ui_lang, "progress_cancel"),
+                    type="button",
+                    hx_post="/cancel",
+                    hx_include="closest form",
+                    hx_target="#translation-progress-text",
+                    cls="secondary",
+                ),
+            ),
+            Script(
+                f"""
+                const progressBar = document.getElementById('translation-progress');
+                const progressText = document.getElementById('translation-progress-text');
+                async function pollTranslationProgress() {{
+                    const response = await fetch('/progress/{session_id}');
+                    const state = await response.json();
+                    progressBar.value = Math.round((state.progress || 0) * 100);
+                    progressText.textContent = state.message || '';
+                    if (state.status === 'done' || state.status === 'error') {{
+                        window.location = '/result/{session_id}?ui_lang={_ui_lang(ui_lang)}';
+                        return;
+                    }}
+                    setTimeout(pollTranslationProgress, 1000);
+                }}
+                pollTranslationProgress();
+                """
+            ),
+            cls="result",
+        ),
+        autohide=autohide,
+        ui_lang=ui_lang,
     )
 
 
@@ -993,60 +1054,142 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             safe_name = os.path.basename(upload.filename)
             uploaded_path = OUTPUT_DIR / f"{uuid.uuid4()}-{safe_name}"
             uploaded_path.write_bytes(await upload.read())
+        session_id = form.get("session_id") or str(uuid.uuid4())
+        translation_jobs[session_id] = {
+            "status": "running",
+            "progress": 0.0,
+            "message": _t(ui_lang, "progress_starting"),
+            "autohide": autohide,
+            "ui_lang": ui_lang,
+        }
+        params = {
+            "file_type": form.get("file_type", "File"),
+            "file_input": str(uploaded_path) if uploaded_path else "",
+            "link_input": form.get("link_input", ""),
+            "service": form.get("service", enabled_services[0]),
+            "lang_from": form.get("lang_from", "English"),
+            "lang_to": form.get("lang_to", "Simplified Chinese"),
+            "page_range": form.get("page_range", "All"),
+            "page_input": form.get("page_input", ""),
+            "prompt": form.get("prompt", ""),
+            "threads": form.get("threads", "4"),
+            "skip_subset_fonts": bool(form.get("skip_subset_fonts")),
+            "ignore_cache": bool(form.get("ignore_cache")),
+            "vfont": form.get("vfont", ""),
+            "mode_choice": form.get("mode_choice", "fast"),
+            "recaptcha_response": form.get("recaptcha_response", ""),
+            "session_id": session_id,
+            "env_0": form.get("env_0", ""),
+            "env_1": form.get("env_1", ""),
+            "env_2": form.get("env_2", ""),
+            "env_3": form.get("env_3", ""),
+        }
 
-        def run_translation():
+        def run_translation_job():
             try:
                 mono, dual = translate_file(
-                    form.get("file_type", "File"),
-                    str(uploaded_path) if uploaded_path else "",
-                    form.get("link_input", ""),
-                    form.get("service", enabled_services[0]),
-                    form.get("lang_from", "English"),
-                    form.get("lang_to", "Simplified Chinese"),
-                    form.get("page_range", "All"),
-                    form.get("page_input", ""),
-                    form.get("prompt", ""),
-                    form.get("threads", "4"),
-                    bool(form.get("skip_subset_fonts")),
-                    bool(form.get("ignore_cache")),
-                    form.get("vfont", ""),
-                    form.get("mode_choice", "fast"),
-                    form.get("recaptcha_response", ""),
-                    form.get("session_id", ""),
-                    form.get("env_0", ""),
-                    form.get("env_1", ""),
-                    form.get("env_2", ""),
-                    form.get("env_3", ""),
+                    params["file_type"],
+                    params["file_input"],
+                    params["link_input"],
+                    params["service"],
+                    params["lang_from"],
+                    params["lang_to"],
+                    params["page_range"],
+                    params["page_input"],
+                    params["prompt"],
+                    params["threads"],
+                    params["skip_subset_fonts"],
+                    params["ignore_cache"],
+                    params["vfont"],
+                    params["mode_choice"],
+                    params["recaptcha_response"],
+                    params["session_id"],
+                    params["env_0"],
+                    params["env_1"],
+                    params["env_2"],
+                    params["env_3"],
                 )
-                return _page(
-                    Div(
-                        A(
-                            _t(ui_lang, "start_another"),
-                            href=f"/?ui_lang={ui_lang}",
-                            cls="button secondary",
-                        ),
-                        cls="actions",
-                    ),
-                    _result_panel(mono, dual, autohide=autohide, ui_lang=ui_lang),
-                    autohide=autohide,
-                    ui_lang=ui_lang,
+                translation_jobs[session_id].update(
+                    {
+                        "status": "done",
+                        "progress": 1.0,
+                        "message": _t(ui_lang, "translated"),
+                        "mono": mono,
+                        "dual": dual,
+                    }
                 )
             except Exception as exc:
                 logger.exception("GUI translation failed")
-                return _page(
-                    Div(
-                        A(
-                            _t(ui_lang, "back"),
-                            href=f"/?ui_lang={ui_lang}",
-                            cls="button secondary",
-                        ),
-                        cls="actions",
-                    ),
-                    _result_panel(error=str(exc) or exc.__class__.__name__, ui_lang=ui_lang),
-                    ui_lang=ui_lang,
+                translation_jobs[session_id].update(
+                    {
+                        "status": "error",
+                        "progress": 1.0,
+                        "message": str(exc) or exc.__class__.__name__,
+                        "error": str(exc) or exc.__class__.__name__,
+                    }
                 )
 
-        return await anyio.to_thread.run_sync(run_translation)
+        threading.Thread(target=run_translation_job, daemon=True).start()
+        return _progress_page(session_id, ui_lang=ui_lang, autohide=autohide)
+
+    @rt("/progress/{session_id}")
+    def progress(req, session_id: str):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        job = translation_jobs.get(session_id)
+        if not job:
+            return JSONResponse(
+                {"status": "error", "progress": 1.0, "message": "Unknown job"}
+            )
+        return JSONResponse(
+            {
+                "status": job.get("status", "running"),
+                "progress": job.get("progress", 0.0),
+                "message": job.get("message", ""),
+            }
+        )
+
+    @rt("/result/{session_id}")
+    def result(req, session_id: str, ui_lang: str = "zh"):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        job = translation_jobs.get(session_id)
+        ui_lang = _ui_lang(job.get("ui_lang") if job else ui_lang)
+        autohide = bool(job.get("autohide")) if job else False
+        if not job:
+            return _page(
+                Div(A(_t(ui_lang, "back"), href=f"/?ui_lang={ui_lang}", cls="button secondary"), cls="actions"),
+                _result_panel(error="Unknown job", ui_lang=ui_lang),
+                ui_lang=ui_lang,
+            )
+        if job.get("status") == "done":
+            return _page(
+                Div(
+                    A(
+                        _t(ui_lang, "start_another"),
+                        href=f"/?ui_lang={ui_lang}",
+                        cls="button secondary",
+                    ),
+                    cls="actions",
+                ),
+                _result_panel(
+                    job.get("mono"),
+                    job.get("dual"),
+                    autohide=autohide,
+                    ui_lang=ui_lang,
+                ),
+                autohide=autohide,
+                ui_lang=ui_lang,
+            )
+        if job.get("status") == "error":
+            return _page(
+                Div(A(_t(ui_lang, "back"), href=f"/?ui_lang={ui_lang}", cls="button secondary"), cls="actions"),
+                _result_panel(error=job.get("error", "Unknown error"), ui_lang=ui_lang),
+                ui_lang=ui_lang,
+            )
+        return _progress_page(session_id, ui_lang=ui_lang, autohide=autohide)
 
     @rt("/file")
     def file(req, name: str):
