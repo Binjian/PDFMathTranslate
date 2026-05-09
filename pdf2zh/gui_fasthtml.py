@@ -4,7 +4,6 @@ import cgi
 import json
 import logging
 import multiprocessing
-import queue
 import os
 import shutil
 import socket
@@ -391,6 +390,23 @@ def download_with_limit(url: str, save_path: Path, size_limit: int | None) -> Pa
     return path
 
 
+class _ProgressPipe:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def put(self, event: dict[str, T.Any]) -> None:
+        try:
+            self.conn.send(event)
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+
+    def close(self) -> None:
+        try:
+            self.conn.close()
+        except OSError:
+            pass
+
+
 def stop_translate_file(session_id: str | None) -> None:
     if session_id and session_id in cancellation_event_map:
         logger.info("Stopping translation for session %s", session_id)
@@ -422,6 +438,12 @@ def shutdown_translation_jobs() -> None:
         job["message"] = "Server stopped"
         job["error"] = "Server stopped"
         job["finished_at"] = time.time()
+        conn = job.pop("progress_conn", None)
+        if conn:
+            try:
+                conn.close()
+            except OSError:
+                pass
         job.pop("process", None)
     cancellation_event_map.clear()
 
@@ -602,6 +624,8 @@ def _translate_file_process(params: dict, progress_queue) -> None:
                 "message": str(exc) or exc.__class__.__name__,
             }
         )
+    finally:
+        progress_queue.close()
 
 
 def parse_user_passwd(file_path: str) -> tuple:
@@ -1667,17 +1691,22 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 
         def run_translation_job():
             ctx = multiprocessing.get_context("spawn")
-            progress_queue = ctx.Queue()
+            progress_conn, worker_conn = ctx.Pipe(duplex=False)
+            progress_pipe = _ProgressPipe(worker_conn)
             process = ctx.Process(
                 target=_translate_file_process,
-                args=(params, progress_queue),
+                args=(params, progress_pipe),
             )
             translation_jobs[session_id]["process"] = process
+            translation_jobs[session_id]["progress_conn"] = progress_conn
             process.start()
+            worker_conn.close()
             while True:
+                event = None
                 try:
-                    event = progress_queue.get(timeout=0.5)
-                except queue.Empty:
+                    if progress_conn.poll(0.5):
+                        event = progress_conn.recv()
+                except (EOFError, OSError):
                     event = None
 
                 if event:
@@ -1739,11 +1768,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 
             process.join(timeout=1)
             translation_jobs[session_id].pop("process", None)
-
+            translation_jobs[session_id].pop("progress_conn", None)
             try:
-                progress_queue.close()
-                progress_queue.join_thread()
-            except Exception:
+                progress_conn.close()
+            except OSError:
                 pass
 
         threading.Thread(target=run_translation_job, daemon=True).start()
