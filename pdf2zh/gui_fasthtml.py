@@ -400,7 +400,12 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
 
 def _preview_panel(filename: str | None = None):
     src = f"/file?name={quote(filename)}" if filename else ""
-    return Div(H2("Preview"), Iframe(src=src, title="Document Preview"), cls="preview")
+    return Div(
+        H2("Preview"),
+        Iframe(src=src, title="Document Preview"),
+        id="preview-panel",
+        cls="preview",
+    )
 
 
 def _auth_response(message: str):
@@ -518,7 +523,16 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             Div(
                 _field(
                     "File" + (" | < 5 MB" if flag_demo else ""),
-                    Input(type="file", name="file_input", accept=".pdf,.doc,.docx"),
+                    Input(
+                        type="file",
+                        name="file_input",
+                        accept=".pdf,.doc,.docx",
+                        hx_post="/preview",
+                        hx_trigger="change",
+                        hx_target="#preview-panel",
+                        hx_swap="outerHTML",
+                        hx_encoding="multipart/form-data",
+                    ),
                 ),
                 _field("Link", Input(type="url", name="link_input", placeholder="https://...")),
                 cls="stack",
@@ -637,6 +651,24 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         form = await req.form()
         stop_translate_file(form.get("session_id"))
         return "Cancellation requested"
+
+    @rt("/preview")
+    async def preview(req):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        form = await req.form()
+        upload = form.get("file_input")
+        if not isinstance(upload, UploadFile) or not upload.filename:
+            return _preview_panel()
+        safe_name = os.path.basename(upload.filename)
+        suffix = Path(safe_name).suffix.lower()
+        if suffix != ".pdf":
+            return _preview_panel()
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        preview_path = OUTPUT_DIR / f"{uuid.uuid4()}-{safe_name}"
+        preview_path.write_bytes(await upload.read())
+        return _preview_panel(preview_path.name)
 
     @rt("/translate")
     async def translate(req):
