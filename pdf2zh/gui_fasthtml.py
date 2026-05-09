@@ -297,6 +297,21 @@ MODE_LABELS_ZH = {
     "precise": "精确",
 }
 
+OLLAMA_MODEL_OPTIONS = [
+    "qwen3-coder:latest",
+    "gemma4:latest",
+    "qwen3.6:latest",
+    "qwen3.5:latest",
+    "deepseek-r1:32b",
+    "qwen3-embedding:latest",
+    "bge-m3:latest",
+    "deepseek-r1:7b",
+    "deepseek-r1:14b",
+    "deepseek-r1:70b",
+    "gemma3:27b",
+    "deepseek-r1:1.5b",
+]
+
 
 def verify_recaptcha(response):
     recaptcha_url = "https://www.google.com/recaptcha/api/siteverify"
@@ -595,9 +610,24 @@ def _service_env_fields(service: str, ui_lang: str = "zh"):
         input_type = "password" if "API_KEY" in label.upper() else "text"
         if hidden_secret_details and "MODEL" not in str(label).upper() and value:
             value = "***" if "API_KEY" in label.upper() else value
+        if service == "Ollama" and label == "OLLAMA_MODEL":
+            choices = list(OLLAMA_MODEL_OPTIONS)
+            if value and value not in choices:
+                choices.insert(0, value)
+            child = Select(
+                *[_value_option(choice, choice, value) for choice in choices],
+                name=f"env_{i}",
+            )
+        else:
+            child = Input(
+                type=input_type,
+                name=f"env_{i}",
+                value=value or "",
+                autocomplete="off",
+            )
         fields[i] = _field(
             label,
-            Input(type=input_type, name=f"env_{i}", value=value or "", autocomplete="off"),
+            child,
         )
     if translator.CustomPrompt:
         fields[-1] = _field(_t(ui_lang, "custom_prompt"), Textarea("", name="prompt", rows=5))
