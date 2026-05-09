@@ -794,17 +794,30 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 input[type="checkbox"], input[type="radio"] { min-height: 0; }
                 button, .button, [role="button"] { padding: .4rem .7rem; margin-bottom: 0; }
                 .layout { display: grid; grid-template-columns: clamp(280px, 25vw, 420px) minmax(0, 1fr); gap: clamp(.5rem, 1vw, 1rem); align-items: start; }
-                .control-panel, .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: clamp(.55rem, .9vw, .85rem); }
-                .control-panel { max-height: calc(100vh - 5.5rem); overflow: auto; scrollbar-gutter: stable; }
+                .control-panel, .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: clamp(.45rem, .75vw, .7rem); }
+                .control-panel { max-height: calc(100dvh - 4.75rem); overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+                .control-panel h2 { margin: 0 0 .3rem; font-size: .98rem; line-height: 1.15; }
+                .control-panel form { display: grid; gap: .25rem; }
+                .control-panel form > script { display: none; }
+                .control-panel label { margin: 0; line-height: 1.18; }
+                .control-panel label > span { display: block; margin-bottom: .1rem; color: #526071; font-size: .76rem; font-weight: 600; }
+                .control-panel input, .control-panel select, .control-panel textarea { width: 100%; min-height: 1.65rem; padding: .22rem .4rem; margin: 0; line-height: 1.2; }
+                .control-panel input[type="file"] { min-height: 1.8rem; padding: .18rem .35rem; font-size: .78rem; }
+                .control-panel input[type="checkbox"], .control-panel input[type="radio"] { width: auto; min-height: 0; }
+                .control-panel button, .control-panel .button, .control-panel [role="button"] { padding: .28rem .55rem; font-size: .84rem; line-height: 1.2; }
+                .control-panel details { margin-top: .25rem; }
+                .control-panel summary { padding: .15rem 0; line-height: 1.2; }
+                .control-panel details > div { margin-top: .25rem; }
+                .control-panel .muted { font-size: .75rem; }
                 .preview, .result { width: 100%; }
                 .result { grid-column: 1 / -1; }
-                .stack { display: grid; gap: .45rem; }
-                .split { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+                .stack { display: grid; gap: .3rem; }
+                .split { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
                 .result-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; margin-bottom: .75rem; }
                 .result-toolbar h2 { margin: 0; }
                 .result-toolbar .toggle-row, .result-toolbar .radio-row, .result-toolbar .actions { margin: 0; }
-                .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .45rem; }
+                .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .25rem; }
                 .toggle-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
                 .autohide-exit { display: none; position: fixed; top: .5rem; right: 1rem; z-index: 10; width: auto; padding: .35rem .65rem; }
                 .radio-row { display: flex; gap: 1rem; align-items: center; margin-bottom: .45rem; }
@@ -825,15 +838,15 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .autohide .result-toolbar h2 { font-size: 1rem; line-height: 1.2; margin: 0; }
                 .autohide .result-toolbar a.button, .autohide .result-toolbar button, .autohide .result-toolbar [role="button"] { width: auto; padding: .25rem .55rem; margin: 0; font-size: .875rem; }
                 .autohide .result #translated-frame { height: calc(100vh - 3.25rem); }
-                details { margin-top: .75rem; }
-                details > div { margin-top: .5rem; }
+                details { margin-top: .5rem; }
+                details > div { margin-top: .35rem; }
                 @media (min-width: 1500px) {
                     .layout { grid-template-columns: clamp(320px, 22vw, 460px) minmax(0, 1fr); }
                     iframe { height: calc(100vh - 8.25rem); }
                 }
                 @media (max-width: 1200px) {
                     .layout { grid-template-columns: minmax(260px, 34vw) minmax(0, 1fr); }
-                    .control-panel { padding: .65rem; }
+                    .control-panel { padding: .5rem; max-height: calc(100dvh - 4rem); }
                     iframe { height: calc(100vh - 7.5rem); min-height: 22rem; }
                 }
                 @media (max-width: 900px) {
@@ -845,7 +858,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 }
                 @media (max-width: 560px) {
                     .app-shell { padding: .5rem; }
-                    .control-panel, .panel { padding: .55rem; }
+                    .control-panel, .panel { padding: .45rem; }
                     iframe { height: 56vh; min-height: 18rem; }
                     .actions { gap: .5rem; }
                 }
@@ -854,9 +867,12 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     header { margin-bottom: .35rem; }
                     header p { display: none; }
                     h2 { margin-bottom: .3rem; }
-                    .control-panel { max-height: calc(100vh - 3.5rem); }
-                    .stack { gap: .3rem; }
-                    input, select, textarea { min-height: 1.8rem; padding-top: .25rem; padding-bottom: .25rem; margin-bottom: .3rem; }
+                    .control-panel { max-height: calc(100dvh - 3rem); }
+                    .control-panel form { gap: .18rem; }
+                    .control-panel .stack { gap: .2rem; }
+                    .control-panel input, .control-panel select, .control-panel textarea { min-height: 1.45rem; padding-top: .16rem; padding-bottom: .16rem; }
+                    .control-panel h2 { font-size: .9rem; margin-bottom: .2rem; }
+                    .control-panel label > span { font-size: .7rem; }
                     iframe { height: calc(100vh - 4.25rem); min-height: 18rem; }
                 }
                 """
