@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import cgi
+import json
 import logging
 import os
 import shutil
@@ -396,7 +397,7 @@ def _result_panel(
     mono_url = f"/file?name={quote(mono_name)}"
     dual_url = f"/file?name={quote(dual_name)}"
     mono_view_url = f"{mono_url}#view=FitH"
-    dual_view_url = f"{dual_url}#view=FitH&spread=even&scroll=vertical"
+    dual_view_url = f"/pdf-viewer?name={quote(dual_name)}&view=facing"
     return Div(
         Div(
             H2("Translated"),
@@ -870,6 +871,134 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         if not path.exists() or not path.is_file():
             return Response("Not found", status_code=404)
         return FileResponse(path)
+
+    @rt("/pdf-viewer")
+    def pdf_viewer(req, name: str, view: str = "facing"):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        name = os.path.basename(name)
+        path = (OUTPUT_DIR / name).resolve()
+        root = OUTPUT_DIR.resolve()
+        if root not in path.parents and path != root:
+            return Response("Not found", status_code=404)
+        if not path.exists() or not path.is_file():
+            return Response("Not found", status_code=404)
+
+        pdf_url = f"/file?name={quote(name)}"
+        facing = view == "facing"
+        html = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{name}</title>
+  <style>
+    html, body {{
+      margin: 0;
+      min-height: 100%;
+      background: #eef2f7;
+      color: #243042;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    #status {{
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: .45rem .75rem;
+      background: #f8fafc;
+      border-bottom: 1px solid #d8dee8;
+      font-size: .9rem;
+    }}
+    #viewer {{
+      display: grid;
+      gap: 1rem;
+      padding: 1rem;
+      box-sizing: border-box;
+      width: 100%;
+    }}
+    .spread {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      align-items: start;
+      justify-items: center;
+      width: 100%;
+    }}
+    .spread.single {{
+      grid-template-columns: minmax(0, 1fr);
+    }}
+    canvas {{
+      max-width: 100%;
+      height: auto;
+      background: white;
+      box-shadow: 0 1px 5px rgba(15, 23, 42, .18);
+    }}
+    @media (max-width: 900px) {{
+      #viewer {{ padding: .5rem; gap: .5rem; }}
+      .spread {{ grid-template-columns: minmax(0, 1fr); gap: .5rem; }}
+    }}
+  </style>
+</head>
+<body>
+  <div id="status">Loading PDF...</div>
+  <main id="viewer" data-facing="{str(facing).lower()}"></main>
+  <script type="module">
+    import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+
+    const pdfUrl = {json.dumps(pdf_url)};
+    const viewer = document.getElementById("viewer");
+    const status = document.getElementById("status");
+    const facing = viewer.dataset.facing === "true";
+    const pageGap = 16;
+
+    async function renderPage(pdf, pageNumber, container, scale) {{
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({{ scale }});
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(viewport.width * ratio);
+      canvas.height = Math.floor(viewport.height * ratio);
+      canvas.style.width = `${{viewport.width}}px`;
+      canvas.style.height = `${{viewport.height}}px`;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      container.appendChild(canvas);
+      await page.render({{ canvasContext: context, viewport }}).promise;
+    }}
+
+    async function renderDocument() {{
+      const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
+      status.textContent = `${{pdf.numPages}} pages`;
+      const firstPage = await pdf.getPage(1);
+      const baseViewport = firstPage.getViewport({{ scale: 1 }});
+      const pagesPerRow = facing && window.innerWidth > 900 ? 2 : 1;
+      const availableWidth = viewer.clientWidth - pageGap * (pagesPerRow - 1);
+      const scale = Math.max(.25, Math.min(2.5, availableWidth / pagesPerRow / baseViewport.width));
+
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += pagesPerRow) {{
+        const spread = document.createElement("section");
+        spread.className = pagesPerRow === 2 && pageNumber < pdf.numPages ? "spread" : "spread single";
+        viewer.appendChild(spread);
+        await renderPage(pdf, pageNumber, spread, scale);
+        if (pagesPerRow === 2 && pageNumber + 1 <= pdf.numPages) {{
+          await renderPage(pdf, pageNumber + 1, spread, scale);
+        }}
+      }}
+      status.remove();
+    }}
+
+    renderDocument().catch((error) => {{
+      console.error(error);
+      status.textContent = "Unable to load PDF";
+    }});
+  </script>
+</body>
+</html>"""
+        return Response(html, media_type="text/html")
 
     return app
 
