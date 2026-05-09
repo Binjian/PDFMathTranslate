@@ -159,6 +159,104 @@ else:
 hidden_secret_details: bool = bool(ConfigManager.get("HIDDEN_GRADIO_DETAILS"))
 cancellation_event_map = {}
 
+UI_TEXT = {
+    "en": {
+        "title": "PDFMathTranslate - PDF Translation with preserved formats",
+        "subtitle": "PDF translation with preserved formats",
+        "show_controls": "Show controls",
+        "language": "Interface",
+        "english": "English",
+        "chinese": "中文",
+        "translation_failed": "Translation failed",
+        "translated": "Translated",
+        "no_result": "Run a translation to create output files.",
+        "autohide": "Autohide",
+        "mono": "Mono",
+        "dual": "Dual",
+        "download_mono": "Download Translation (Mono)",
+        "download_dual": "Download Translation (Dual)",
+        "translated_document": "Translated Document",
+        "preview": "Preview",
+        "document_preview": "Document Preview",
+        "file_section": "File",
+        "file_limited": "File | < 5 MB",
+        "type": "Type",
+        "file_choice": "File",
+        "link_choice": "Link",
+        "link": "Link",
+        "option": "Option",
+        "service": "Service",
+        "translate_from": "Translate from",
+        "translate_to": "Translate to",
+        "pages": "Pages",
+        "page_range": "Page range",
+        "experimental_options": "More experimental options",
+        "threads": "number of threads",
+        "skip_subset_fonts": "Skip font subsetting",
+        "ignore_cache": "Ignore cache",
+        "vfont": "Custom formula font regex (vfont)",
+        "translation_mode": "Translation Mode",
+        "translate": "Translate",
+        "cancel": "Cancel",
+        "technical_details": "Technical details",
+        "start_another": "Start another translation",
+        "back": "Back",
+        "custom_prompt": "Custom Prompt for llm",
+    },
+    "zh": {
+        "title": "PDFMathTranslate - 保留格式的 PDF 翻译",
+        "subtitle": "保留格式的 PDF 翻译",
+        "show_controls": "显示控制项",
+        "language": "界面语言",
+        "english": "English",
+        "chinese": "中文",
+        "translation_failed": "翻译失败",
+        "translated": "译文",
+        "no_result": "翻译完成后会在这里显示输出文件。",
+        "autohide": "自动隐藏",
+        "mono": "单页",
+        "dual": "双页",
+        "download_mono": "下载译文（单页）",
+        "download_dual": "下载译文（双页）",
+        "translated_document": "译文预览",
+        "preview": "预览",
+        "document_preview": "文档预览",
+        "file_section": "文件",
+        "file_limited": "文件 | < 5 MB",
+        "type": "类型",
+        "file_choice": "文件",
+        "link_choice": "链接",
+        "link": "链接",
+        "option": "选项",
+        "service": "服务",
+        "translate_from": "源语言",
+        "translate_to": "目标语言",
+        "pages": "页面",
+        "page_range": "页码范围",
+        "experimental_options": "更多实验选项",
+        "threads": "线程数",
+        "skip_subset_fonts": "跳过字体子集化",
+        "ignore_cache": "忽略缓存",
+        "vfont": "自定义公式字体正则 (vfont)",
+        "translation_mode": "翻译模式",
+        "translate": "翻译",
+        "cancel": "取消",
+        "technical_details": "技术详情",
+        "start_another": "继续翻译",
+        "back": "返回",
+        "custom_prompt": "大模型自定义提示词",
+    },
+}
+
+
+def _ui_lang(lang: str | None) -> str:
+    return "zh" if str(lang or "").lower().startswith("zh") else "en"
+
+
+def _t(lang: str | None, key: str) -> str:
+    lang = _ui_lang(lang)
+    return UI_TEXT[lang].get(key, UI_TEXT["en"].get(key, key))
+
 
 def verify_recaptcha(response):
     recaptcha_url = "https://www.google.com/recaptcha/api/siteverify"
@@ -362,7 +460,7 @@ def _checkbox(label: str, name: str, checked: bool = False):
     return Label(Input(type="checkbox", name=name, value="true", checked=checked), label)
 
 
-def _service_env_fields(service: str):
+def _service_env_fields(service: str, ui_lang: str = "en"):
     translator = service_map[service]
     fields = [Input(type="hidden", name=f"env_{i}", value="") for i in range(4)]
     for i, env in enumerate(translator.envs.items()):
@@ -376,7 +474,7 @@ def _service_env_fields(service: str):
             Input(type=input_type, name=f"env_{i}", value=value or "", autocomplete="off"),
         )
     if translator.CustomPrompt:
-        fields[-1] = _field("Custom Prompt for llm", Textarea("", name="prompt", rows=5))
+        fields[-1] = _field(_t(ui_lang, "custom_prompt"), Textarea("", name="prompt", rows=5))
     else:
         fields.append(Input(type="hidden", name="prompt", value=""))
     return Div(*fields, id="env-fields", cls="stack")
@@ -387,11 +485,12 @@ def _result_panel(
     dual: str | None = None,
     error: str | None = None,
     autohide: bool = False,
+    ui_lang: str = "en",
 ):
     if error:
-        return Div(H2("Translation failed"), P(error), cls="result error", id="result")
+        return Div(H2(_t(ui_lang, "translation_failed")), P(error), cls="result error", id="result")
     if not mono or not dual:
-        return Div(H2("Translated"), P("Run a translation to create output files."), id="result")
+        return Div(H2(_t(ui_lang, "translated")), P(_t(ui_lang, "no_result")), id="result")
     mono_name = Path(mono).name
     dual_name = Path(dual).name
     mono_url = f"/file?name={quote(mono_name)}"
@@ -400,7 +499,7 @@ def _result_panel(
     dual_view_url = f"/pdf-viewer?name={quote(dual_name)}&view=facing"
     return Div(
         Div(
-            H2("Translated"),
+            H2(_t(ui_lang, "translated")),
             Div(
                 Label(
                     Input(
@@ -408,7 +507,7 @@ def _result_panel(
                         id="result-autohide-toggle",
                         checked=autohide,
                     ),
-                    "Autohide",
+                    _t(ui_lang, "autohide"),
                 ),
                 cls="toggle-row",
             ),
@@ -420,7 +519,7 @@ def _result_panel(
                         value="mono",
                         data_url=mono_view_url,
                     ),
-                    "Mono",
+                    _t(ui_lang, "mono"),
                 ),
                 Label(
                     Input(
@@ -430,18 +529,18 @@ def _result_panel(
                         checked=True,
                         data_url=dual_view_url,
                     ),
-                    "Dual",
+                    _t(ui_lang, "dual"),
                 ),
                 cls="radio-row",
             ),
             Div(
                 A(
-                    "Download Translation (Mono)",
+                    _t(ui_lang, "download_mono"),
                     href=mono_url,
                     cls="button",
                 ),
                 A(
-                    "Download Translation (Dual)",
+                    _t(ui_lang, "download_dual"),
                     href=dual_url,
                     cls="button secondary",
                 ),
@@ -449,7 +548,7 @@ def _result_panel(
             ),
             cls="result-toolbar",
         ),
-        Iframe(id="translated-frame", src=dual_view_url, title="Translated Document"),
+        Iframe(id="translated-frame", src=dual_view_url, title=_t(ui_lang, "translated_document")),
         Script(
             """
             document.querySelectorAll('input[name="translated_view"]').forEach((input) => {
@@ -467,14 +566,15 @@ def _result_panel(
     )
 
 
-def _preview_panel(filename: str | None = None, autohide: bool = False):
+def _preview_panel(filename: str | None = None, autohide: bool = False, ui_lang: str = "en"):
     src = f"/file?name={quote(filename)}" if filename else ""
     return Div(
-        H2("Preview"),
-        Iframe(src=src, title="Document Preview"),
+        H2(_t(ui_lang, "preview")),
+        Iframe(src=src, title=_t(ui_lang, "document_preview")),
         id="preview-panel",
         cls="preview",
         data_autohide="true" if autohide else "false",
+        data_ui_lang=_ui_lang(ui_lang),
     )
 
 
@@ -503,7 +603,7 @@ def _authorized(req, user_list: list[tuple[str, str]], auth_message: str):
     return None
 
 
-def _page(*children, autohide: bool = False):
+def _page(*children, autohide: bool = False, ui_lang: str = "en"):
     recaptcha = []
     if flag_demo:
         recaptcha = [
@@ -532,16 +632,16 @@ def _page(*children, autohide: bool = False):
             ),
         ]
     return (
-        Title("PDFMathTranslate - PDF Translation with preserved formats"),
+        Title(_t(ui_lang, "title")),
         *recaptcha,
         Main(
             Header(
                 H1(A("PDFMathTranslate @ GitHub", href="https://github.com/Byaidu/PDFMathTranslate")),
-                P("PDF translation with preserved formats"),
+                P(_t(ui_lang, "subtitle")),
                 cls="page-header",
             ),
             Button(
-                "Show controls",
+                _t(ui_lang, "show_controls"),
                 type="button",
                 cls="autohide-exit secondary",
                 onclick=(
@@ -610,14 +710,25 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
     )
 
     @rt("/")
-    def index(req):
+    def index(req, ui_lang: str = "en"):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
+        ui_lang = _ui_lang(ui_lang)
         session_id = str(uuid.uuid4())
         default_service = enabled_services[0]
         form = Form(
             Input(type="hidden", name="session_id", value=session_id),
+            Input(type="hidden", name="ui_lang", value=ui_lang),
+            _field(
+                _t(ui_lang, "language"),
+                Select(
+                    Option(_t(ui_lang, "english"), value="en", selected=ui_lang == "en"),
+                    Option(_t(ui_lang, "chinese"), value="zh", selected=ui_lang == "zh"),
+                    name="ui_lang_selector",
+                    onchange="window.location='/?ui_lang=' + this.value",
+                ),
+            ),
             Div(
                 Label(
                     Input(
@@ -626,7 +737,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         value="true",
                         id="autohide-toggle",
                     ),
-                    "Autohide",
+                    _t(ui_lang, "autohide"),
                 ),
                 cls="toggle-row",
             ),
@@ -646,12 +757,16 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 """
             ),
             _field(
-                "Type",
-                Select(_option("File", "File"), _option("Link", "File"), name="file_type"),
+                _t(ui_lang, "type"),
+                Select(
+                    Option(_t(ui_lang, "file_choice"), value="File", selected=True),
+                    Option(_t(ui_lang, "link_choice"), value="Link"),
+                    name="file_type",
+                ),
             ),
             Div(
                 _field(
-                    "File" + (" | < 5 MB" if flag_demo else ""),
+                    _t(ui_lang, "file_limited" if flag_demo else "file_section"),
                     Input(
                         type="file",
                         name="file_input",
@@ -661,28 +776,28 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         hx_target="#preview-panel",
                         hx_swap="outerHTML",
                         hx_encoding="multipart/form-data",
-                        hx_include="[name='autohide']",
+                        hx_include="[name='autohide'],[name='ui_lang']",
                     ),
                 ),
-                _field("Link", Input(type="url", name="link_input", placeholder="https://...")),
+                _field(_t(ui_lang, "link"), Input(type="url", name="link_input", placeholder="https://...")),
                 cls="stack",
             ),
-            H2("Option"),
+            H2(_t(ui_lang, "option")),
             _field(
-                "Service",
+                _t(ui_lang, "service"),
                 Select(
                     *[_option(service, default_service) for service in enabled_services],
                     name="service",
                     hx_get="/service-fields",
                     hx_target="#env-fields",
                     hx_trigger="change",
-                    hx_include="[name='service']",
+                    hx_include="[name='service'],[name='ui_lang']",
                 ),
             ),
-            _service_env_fields(default_service),
+            _service_env_fields(default_service, ui_lang),
             Div(
                 _field(
-                    "Translate from",
+                    _t(ui_lang, "translate_from"),
                     Select(
                         *[
                             _option(lang, ConfigManager.get("PDF2ZH_LANG_FROM", "English"))
@@ -692,7 +807,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     ),
                 ),
                 _field(
-                    "Translate to",
+                    _t(ui_lang, "translate_to"),
                     Select(
                         *[
                             _option(
@@ -707,22 +822,22 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 cls="split",
             ),
             _field(
-                "Pages",
+                _t(ui_lang, "pages"),
                 Select(*[_option(page, list(page_map.keys())[0]) for page in page_map.keys()], name="page_range"),
             ),
-            _field("Page range", Input(type="text", name="page_input", placeholder="1,3,5-7")),
+            _field(_t(ui_lang, "page_range"), Input(type="text", name="page_input", placeholder="1,3,5-7")),
             Details(
-                Summary("More experimental options"),
+                Summary(_t(ui_lang, "experimental_options")),
                 Div(
-                    _field("number of threads", Input(type="number", min="1", step="1", name="threads", value="4")),
-                    _checkbox("Skip font subsetting", "skip_subset_fonts"),
-                    _checkbox("Ignore cache", "ignore_cache"),
+                    _field(_t(ui_lang, "threads"), Input(type="number", min="1", step="1", name="threads", value="4")),
+                    _checkbox(_t(ui_lang, "skip_subset_fonts"), "skip_subset_fonts"),
+                    _checkbox(_t(ui_lang, "ignore_cache"), "ignore_cache"),
                     _field(
-                        "Custom formula font regex (vfont)",
+                        _t(ui_lang, "vfont"),
                         Input(type="text", name="vfont", value=ConfigManager.get("PDF2ZH_VFONT", "")),
                     ),
                     _field(
-                        "Translation Mode",
+                        _t(ui_lang, "translation_mode"),
                         Select(_option("fast", "fast"), _option("precise", "fast"), name="mode_choice"),
                     ),
                     cls="stack",
@@ -731,9 +846,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             Input(type="hidden", name="recaptcha_response", id="recaptcha-response", value=""),
             Div(id="recaptcha-box"),
             Div(
-                Button("Translate", type="submit"),
+                Button(_t(ui_lang, "translate"), type="submit"),
                 Button(
-                    "Cancel",
+                    _t(ui_lang, "cancel"),
                     type="button",
                     hx_post="/cancel",
                     hx_include="[name='session_id']",
@@ -749,7 +864,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             cls="stack",
         )
         details = Details(
-            Summary("Technical details"),
+            Summary(_t(ui_lang, "technical_details")),
             P(A("GitHub: Byaidu/PDFMathTranslate", href="https://github.com/Byaidu/PDFMathTranslate")),
             P(A("BabelDOC: funstory-ai/BabelDOC", href="https://github.com/funstory-ai/BabelDOC")),
             P(f"pdf2zh Version: {__version__}"),
@@ -758,20 +873,21 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         )
         return _page(
             Div(
-                Div(H2("File"), form, details, cls="control-panel"),
-                Div(_preview_panel(), cls="stack"),
+                Div(H2(_t(ui_lang, "file_section")), form, details, cls="control-panel"),
+                Div(_preview_panel(ui_lang=ui_lang), cls="stack"),
                 cls="layout",
-            )
+            ),
+            ui_lang=ui_lang,
         )
 
     @rt("/service-fields")
-    def service_fields(req, service: str):
+    def service_fields(req, service: str, ui_lang: str = "en"):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
         if service not in service_map:
             service = enabled_services[0]
-        return _service_env_fields(service)
+        return _service_env_fields(service, ui_lang)
 
     @rt("/favicon.ico")
     def favicon():
@@ -793,17 +909,18 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             return auth
         form = await req.form()
         autohide = bool(form.get("autohide"))
+        ui_lang = _ui_lang(form.get("ui_lang"))
         upload = form.get("file_input")
         if not isinstance(upload, UploadFile) or not upload.filename:
-            return _preview_panel(autohide=autohide)
+            return _preview_panel(autohide=autohide, ui_lang=ui_lang)
         safe_name = os.path.basename(upload.filename)
         suffix = Path(safe_name).suffix.lower()
         if suffix != ".pdf":
-            return _preview_panel(autohide=autohide)
+            return _preview_panel(autohide=autohide, ui_lang=ui_lang)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         preview_path = OUTPUT_DIR / f"{uuid.uuid4()}-{safe_name}"
         preview_path.write_bytes(await upload.read())
-        return _preview_panel(preview_path.name, autohide=autohide)
+        return _preview_panel(preview_path.name, autohide=autohide, ui_lang=ui_lang)
 
     @rt("/translate")
     async def translate(req):
@@ -812,6 +929,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             return auth
         form = await req.form()
         autohide = bool(form.get("autohide"))
+        ui_lang = _ui_lang(form.get("ui_lang"))
         upload = form.get("file_input")
         uploaded_path = None
         if isinstance(upload, UploadFile) and upload.filename:
@@ -845,15 +963,31 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     form.get("env_3", ""),
                 )
                 return _page(
-                    Div(A("Start another translation", href="/", cls="button secondary"), cls="actions"),
-                    _result_panel(mono, dual, autohide=autohide),
+                    Div(
+                        A(
+                            _t(ui_lang, "start_another"),
+                            href=f"/?ui_lang={ui_lang}",
+                            cls="button secondary",
+                        ),
+                        cls="actions",
+                    ),
+                    _result_panel(mono, dual, autohide=autohide, ui_lang=ui_lang),
                     autohide=autohide,
+                    ui_lang=ui_lang,
                 )
             except Exception as exc:
                 logger.exception("GUI translation failed")
                 return _page(
-                    Div(A("Back", href="/", cls="button secondary"), cls="actions"),
-                    _result_panel(error=str(exc) or exc.__class__.__name__),
+                    Div(
+                        A(
+                            _t(ui_lang, "back"),
+                            href=f"/?ui_lang={ui_lang}",
+                            cls="button secondary",
+                        ),
+                        cls="actions",
+                    ),
+                    _result_panel(error=str(exc) or exc.__class__.__name__, ui_lang=ui_lang),
+                    ui_lang=ui_lang,
                 )
 
         return await anyio.to_thread.run_sync(run_translation)
