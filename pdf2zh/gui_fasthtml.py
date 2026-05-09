@@ -935,6 +935,7 @@ def _preview_panel(filename: str | None = None, autohide: bool = False, ui_lang:
     src = f"/file?name={quote(filename)}" if filename else ""
     return Div(
         H2(_t(ui_lang, "preview")),
+        Div(_t(ui_lang, "drop_file"), cls="preview-drop-overlay", id="preview-drop-overlay"),
         Iframe(src=src, title=_t(ui_lang, "document_preview")),
         id="preview-panel",
         cls="preview",
@@ -1233,7 +1234,33 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .file-drop-zone.drag-over, .preview.drag-over { background: #eef6ff; border-color: #3b82f6; }
                 .file-drop-zone .drop-hint { color: #526071; font-size: .78rem; line-height: 1.2; }
                 .preview, .result { width: 100%; }
-                .preview { border: 1px dashed #a8b3c4; border-radius: 8px; padding: .45rem; background: #f8fafc; transition: background .15s ease, border-color .15s ease; }
+                .preview { position: relative; border: 1px dashed #a8b3c4; border-radius: 8px; padding: .45rem; background: #f8fafc; transition: background .15s ease, border-color .15s ease; }
+                .preview-drop-overlay {
+                    position: absolute;
+                    inset: 2.4rem .45rem .45rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 1rem;
+                    border: 1px dashed transparent;
+                    border-radius: 8px;
+                    background: rgba(238, 246, 255, 0.96);
+                    color: #1d4ed8;
+                    font-size: .9rem;
+                    font-weight: 600;
+                    text-align: center;
+                    opacity: 0;
+                    pointer-events: none;
+                    transition: opacity .15s ease, border-color .15s ease;
+                    z-index: 2;
+                }
+                .preview.drag-over .preview-drop-overlay,
+                .file-dragging .preview .preview-drop-overlay {
+                    opacity: 1;
+                    pointer-events: auto;
+                    border-color: #3b82f6;
+                }
+                .file-dragging .preview iframe { pointer-events: none; }
                 .result { grid-column: 1 / -1; }
                 .stack { display: grid; gap: .3rem; }
                 .ollama-host-field { display: grid; gap: .25rem; }
@@ -1425,22 +1452,43 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             ),
             Script(
                 """
-                // Prevent browser default file handling at document level
-                document.addEventListener('dragover', (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                });
-                document.addEventListener('drop', (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                });
-                
-                const dropTargets = [
-                    document.getElementById('file-drop-zone'),
-                    document.getElementById('preview-panel'),
-                ].filter(Boolean);
                 const fileInput = document.getElementById('file-input');
-                if (dropTargets.length && fileInput) {
+                const fileDropZone = document.getElementById('file-drop-zone');
+                const previewPanel = document.getElementById('preview-panel');
+                const previewOverlay = document.getElementById('preview-drop-overlay');
+                const dropTargets = [fileDropZone, previewPanel, previewOverlay].filter(Boolean);
+
+                const preventBrowserDrop = (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                };
+
+                const setPreviewDropState = (enabled) => {
+                    if (previewPanel) previewPanel.classList.toggle('drag-over', enabled);
+                };
+
+                const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+
+                let pageDragDepth = 0;
+
+                const beginPageDrag = (event) => {
+                    if (!hasDraggedFiles(event)) return;
+                    preventBrowserDrop(event);
+                    pageDragDepth += 1;
+                    document.body.classList.add('file-dragging');
+                };
+
+                const endPageDrag = (event) => {
+                    if (!hasDraggedFiles(event) && event.type !== 'drop') return;
+                    preventBrowserDrop(event);
+                    pageDragDepth = Math.max(0, pageDragDepth - 1);
+                    if (pageDragDepth === 0) {
+                        document.body.classList.remove('file-dragging');
+                        setPreviewDropState(false);
+                    }
+                };
+
+                if (fileInput && dropTargets.length) {
                     const useDroppedFile = (event) => {
                         const files = event.dataTransfer?.files;
                         if (!files || files.length === 0) return;
@@ -1449,30 +1497,73 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         fileInput.files = transfer.files;
                         const fileType = document.querySelector('[name="file_type"]');
                         if (fileType) fileType.value = 'File';
+                        pageDragDepth = 0;
+                        document.body.classList.remove('file-dragging');
+                        setPreviewDropState(false);
                         fileInput.dispatchEvent(new Event('change', { bubbles: true }));
                     };
-                    dropTargets.forEach((target) => {
-                        target.addEventListener('dragenter', (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            target.classList.add('drag-over');
-                        });
-                        target.addEventListener('dragover', (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                        });
-                        target.addEventListener('dragleave', (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            target.classList.remove('drag-over');
-                        });
-                        target.addEventListener('drop', (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            target.classList.remove('drag-over');
-                            useDroppedFile(event);
-                        }, true);
+
+                    ['dragenter', 'dragover', 'drop'].forEach((name) => {
+                        window.addEventListener(name, preventBrowserDrop, true);
+                        document.addEventListener(name, preventBrowserDrop, true);
                     });
+                    window.addEventListener('dragenter', beginPageDrag, true);
+                    window.addEventListener('dragleave', endPageDrag, true);
+                    window.addEventListener('drop', (event) => {
+                        pageDragDepth = 0;
+                        document.body.classList.remove('file-dragging');
+                        setPreviewDropState(false);
+                        preventBrowserDrop(event);
+                    }, true);
+
+                    if (fileDropZone) {
+                        ['dragenter', 'dragover'].forEach((name) => {
+                            fileDropZone.addEventListener(name, (event) => {
+                                preventBrowserDrop(event);
+                                fileDropZone.classList.add('drag-over');
+                            });
+                        });
+                        ['dragleave', 'drop'].forEach((name) => {
+                            fileDropZone.addEventListener(name, (event) => {
+                                preventBrowserDrop(event);
+                                fileDropZone.classList.remove('drag-over');
+                            });
+                        });
+                        fileDropZone.addEventListener('drop', useDroppedFile);
+                    }
+
+                    if (previewPanel && previewOverlay) {
+                        const beginPreviewDrag = (event) => {
+                            preventBrowserDrop(event);
+                            setPreviewDropState(true);
+                        };
+
+                        const updatePreviewDrag = (event) => {
+                            preventBrowserDrop(event);
+                            setPreviewDropState(true);
+                        };
+
+                        const endPreviewDrag = (event) => {
+                            preventBrowserDrop(event);
+                            if (!previewPanel.contains(event.relatedTarget)) setPreviewDropState(false);
+                        };
+
+                        previewPanel.addEventListener('dragenter', beginPreviewDrag);
+                        previewPanel.addEventListener('dragover', updatePreviewDrag);
+                        previewPanel.addEventListener('drop', (event) => {
+                            preventBrowserDrop(event);
+                            useDroppedFile(event);
+                        });
+                        previewPanel.addEventListener('dragleave', endPreviewDrag);
+
+                        previewOverlay.addEventListener('dragenter', beginPreviewDrag);
+                        previewOverlay.addEventListener('dragover', updatePreviewDrag);
+                        previewOverlay.addEventListener('dragleave', endPreviewDrag);
+                        previewOverlay.addEventListener('drop', (event) => {
+                            preventBrowserDrop(event);
+                            useDroppedFile(event);
+                        });
+                    }
                 }
                 """
             ),
