@@ -313,11 +313,23 @@ OLLAMA_MODEL_OPTIONS = [
 ]
 
 OLLAMA_MODEL_FALLBACK_OPTIONS = OLLAMA_MODEL_OPTIONS
+OLLAMA_HOST_OPTIONS = [
+    "127.0.0.1:11434",
+    "172.27.74.16:11434",
+    "172.27.74.49:11434",
+]
+
+
+def _normalize_ollama_host(host: str | None) -> str:
+    host = (host or "").strip()
+    if host and "://" not in host:
+        host = f"http://{host}"
+    return host.rstrip("/")
 
 
 def _ollama_model_options(host: str | None, selected: str | None = None) -> list[str]:
     models: list[str] = []
-    host = (host or "").strip().rstrip("/")
+    host = _normalize_ollama_host(host)
     if host:
         try:
             response = requests.get(f"{host}/api/tags", timeout=2)
@@ -452,6 +464,8 @@ def translate_file(
     for i, env in enumerate(translator.envs.items()):
         _envs[env[0]] = envs[i] if i < len(envs) else env[1]
     for k, v in _envs.items():
+        if k == "OLLAMA_HOST" and v:
+            _envs[k] = _normalize_ollama_host(str(v))
         if str(k).upper().endswith("API_KEY") and str(v) == "***":
             _envs[k] = ConfigManager.get_env_by_translatername(translator, k, None)
 
@@ -616,6 +630,69 @@ def _mode_options(ui_lang: str, selected: str):
     ]
 
 
+def _ollama_host_label(host: str) -> str:
+    return host.removeprefix("http://").removeprefix("https://")
+
+
+def _ollama_host_input(name: str, value: str | None, ui_lang: str):
+    normalized_value = _normalize_ollama_host(value)
+    options = [
+        (_normalize_ollama_host(host), _ollama_host_label(host))
+        for host in OLLAMA_HOST_OPTIONS
+    ]
+    option_values = {host for host, _ in options}
+    manual_value = value or ""
+    selected = normalized_value if normalized_value in option_values else "__manual__"
+    if selected != "__manual__":
+        manual_value = ""
+
+    return Div(
+        Input(
+            type="hidden",
+            name=name,
+            id="ollama-host-value",
+            value=normalized_value,
+            hx_get="/ollama-models",
+            hx_trigger="change delay:300ms",
+            hx_target="#ollama-model-field",
+            hx_include="[name='env_0'],[name='env_1']",
+        ),
+        Select(
+            *[_value_option(host, label, selected) for host, label in options],
+            Option(
+                "手动输入" if _ui_lang(ui_lang) == "zh" else "Manual input",
+                value="__manual__",
+                selected=selected == "__manual__",
+            ),
+            id="ollama-host-preset",
+            onchange=(
+                "const hidden=document.getElementById('ollama-host-value');"
+                "const manual=document.getElementById('ollama-host-manual');"
+                "if(this.value==='__manual__'){"
+                "manual.style.display='block'; hidden.value=manual.value;"
+                "}else{"
+                "manual.style.display='none'; hidden.value=this.value;"
+                "}"
+                "hidden.dispatchEvent(new Event('change',{bubbles:true}));"
+            ),
+        ),
+        Input(
+            type="text",
+            id="ollama-host-manual",
+            value=manual_value,
+            placeholder="172.27.74.16:11434",
+            autocomplete="off",
+            style="" if selected == "__manual__" else "display:none",
+            oninput=(
+                "const hidden=document.getElementById('ollama-host-value');"
+                "hidden.value=this.value;"
+                "hidden.dispatchEvent(new Event('change',{bubbles:true}));"
+            ),
+        ),
+        cls="ollama-host-field",
+    )
+
+
 def _field(label: str, child):
     return Label(Span(label), child)
 
@@ -636,16 +713,7 @@ def _service_env_fields(service: str, ui_lang: str = "zh"):
         if hidden_secret_details and "MODEL" not in str(label).upper() and value:
             value = "***" if "API_KEY" in label.upper() else value
         if service == "Ollama" and label == "OLLAMA_HOST":
-            child = Input(
-                type=input_type,
-                name=f"env_{i}",
-                value=value or "",
-                autocomplete="off",
-                hx_get="/ollama-models",
-                hx_trigger="change delay:300ms",
-                hx_target="#ollama-model-field",
-                hx_include="[name='env_0'],[name='env_1']",
-            )
+            child = _ollama_host_input(f"env_{i}", value, ui_lang)
             fields[i] = _field(label, child)
             continue
         if service == "Ollama" and label == "OLLAMA_MODEL":
@@ -928,6 +996,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .preview, .result { width: 100%; }
                 .result { grid-column: 1 / -1; }
                 .stack { display: grid; gap: .3rem; }
+                .ollama-host-field { display: grid; gap: .25rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
                 .result-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; margin-bottom: .75rem; }
