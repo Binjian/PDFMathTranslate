@@ -182,6 +182,41 @@ class TestOllamaTranslator(unittest.TestCase):
             with self.assertRaises(OllamaResponseError):
                 mock_client.chat()
 
+    def test_initialization_supports_timeout_and_think(self):
+        translator = OllamaTranslator(
+            lang_in="en",
+            lang_out="zh",
+            model="qwen3.6:latest",
+            envs={
+                "OLLAMA_HOST": "http://127.0.0.1:11434",
+                "OLLAMA_TIMEOUT": "45",
+                "OLLAMA_THINK": "false",
+            },
+        )
+        self.assertEqual(45.0, translator._parse_timeout(translator.envs["OLLAMA_TIMEOUT"]))
+        self.assertFalse(translator.think)
+
+    def test_do_translate_retries_without_think_when_rejected(self):
+        translator = OllamaTranslator(
+            lang_in="en",
+            lang_out="zh",
+            model="qwen3.6:latest",
+            envs={"OLLAMA_THINK": "true"},
+        )
+        with mock.patch.object(translator, "client") as mock_client:
+            first_error = OllamaResponseError("think parameter is not supported")
+            chat_response = mock.Mock()
+            chat_response.message.content = "translated"
+            mock_client.chat.side_effect = [first_error, chat_response]
+
+            translated_result = translator.do_translate("hello")
+
+            first_call = mock_client.chat.call_args_list[0].kwargs
+            second_call = mock_client.chat.call_args_list[1].kwargs
+            self.assertTrue(first_call["think"])
+            self.assertNotIn("think", second_call)
+            self.assertEqual("translated", translated_result)
+
     def test_remove_cot_content(self):
         fake_cot_resp_text = dedent("""\
             <think>

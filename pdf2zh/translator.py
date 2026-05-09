@@ -298,6 +298,8 @@ class OllamaTranslator(BaseTranslator):
     envs = {
         "OLLAMA_HOST": "http://127.0.0.1:11434",
         "OLLAMA_MODEL": "gemma2",
+        "OLLAMA_TIMEOUT": "300",
+        "OLLAMA_THINK": "false",
     }
     CustomPrompt = True
 
@@ -311,6 +313,8 @@ class OllamaTranslator(BaseTranslator):
         ignore_cache=False,
     ):
         self.set_envs(envs)
+        for key, value in self.__class__.envs.items():
+            self.envs.setdefault(key, value)
         if not model:
             model = self.envs["OLLAMA_MODEL"]
         super().__init__(lang_in, lang_out, model, ignore_cache)
@@ -320,21 +324,53 @@ class OllamaTranslator(BaseTranslator):
         }
         self.client = ollama.Client(
             host=self.envs["OLLAMA_HOST"],
+            timeout=self._parse_timeout(self.envs.get("OLLAMA_TIMEOUT")),
         )
+        self.think = self._parse_think(self.envs.get("OLLAMA_THINK"))
         self.prompt_template = prompt
         self.add_cache_impact_parameters("temperature", self.options["temperature"])
+        self.add_cache_impact_parameters("think", self.think)
 
     def do_translate(self, text: str) -> str:
         if (max_token := len(text) * 5) > self.options["num_predict"]:
             self.options["num_predict"] = max_token
 
-        response = self.client.chat(
-            model=self.model,
-            messages=self.prompt(text, self.prompt_template),
-            options=self.options,
-        )
+        chat_kwargs = {
+            "model": self.model,
+            "messages": self.prompt(text, self.prompt_template),
+            "options": self.options,
+        }
+        if self.think is not None:
+            chat_kwargs["think"] = self.think
+        try:
+            response = self.client.chat(**chat_kwargs)
+        except ollama.ResponseError as exc:
+            if "think" not in chat_kwargs or "think" not in str(exc).lower():
+                raise
+            logger.warning("Ollama server rejected think option; retrying without it.")
+            chat_kwargs.pop("think")
+            response = self.client.chat(**chat_kwargs)
         content = self._remove_cot_content(response.message.content or "")
         return content.strip()
+
+    @staticmethod
+    def _parse_timeout(value) -> float | None:
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError):
+            return 300
+        return timeout if timeout > 0 else None
+
+    @staticmethod
+    def _parse_think(value):
+        value = str(value or "").strip().lower()
+        if value in {"", "auto", "none", "default"}:
+            return None
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"low", "medium", "high"}:
+            return value
+        return False
 
     @staticmethod
     def _remove_cot_content(content: str) -> str:
