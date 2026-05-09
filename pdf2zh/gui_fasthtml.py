@@ -749,10 +749,15 @@ def _service_env_fields(
     env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
-        value = env_overrides.get(
-            f"env_{i}",
-            ConfigManager.get_env_by_translatername(translator, env[0], env[1]),
-        )
+        try:
+            configured_value = ConfigManager.get_env_by_translatername(
+                translator,
+                env[0],
+                env[1],
+            )
+        except (KeyError, TypeError):
+            configured_value = env[1]
+        value = env_overrides.get(f"env_{i}", configured_value)
         env_values[label] = value
         input_type = "password" if "API_KEY" in label.upper() else "text"
         if hidden_secret_details and "MODEL" not in str(label).upper() and value:
@@ -778,9 +783,11 @@ def _service_env_fields(
             )
         fields[i] = _field(label, child)
     if translator.CustomPrompt:
-        fields[-1] = _field(
-            _t(ui_lang, "custom_prompt"),
-            Textarea(prompt_value or "", name="prompt", rows=5),
+        fields.append(
+            _field(
+                _t(ui_lang, "custom_prompt"),
+                Textarea(prompt_value or "", name="prompt", rows=5),
+            )
         )
     else:
         fields.append(Input(type="hidden", name="prompt", value=""))
