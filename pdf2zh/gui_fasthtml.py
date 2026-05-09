@@ -259,6 +259,33 @@ def _t(lang: str | None, key: str) -> str:
     return UI_TEXT[lang].get(key, UI_TEXT["en"].get(key, key))
 
 
+LANG_LABELS_ZH = {
+    "Simplified Chinese": "简体中文",
+    "Traditional Chinese": "繁体中文",
+    "English": "英语",
+    "French": "法语",
+    "German": "德语",
+    "Japanese": "日语",
+    "Korean": "韩语",
+    "Russian": "俄语",
+    "Spanish": "西班牙语",
+    "Italian": "意大利语",
+}
+
+PAGE_LABELS_ZH = {
+    "All": "全部",
+    "First": "第一页",
+    "First 5 pages": "前 5 页",
+    "First 20 pages": "前 20 页",
+    "Others": "其他",
+}
+
+MODE_LABELS_ZH = {
+    "fast": "快速",
+    "precise": "精确",
+}
+
+
 def verify_recaptcha(response):
     recaptcha_url = "https://www.google.com/recaptcha/api/siteverify"
     data = {"secret": server_key, "response": response}
@@ -451,6 +478,34 @@ def _has_ipv6() -> bool:
 
 def _option(label: str, selected: str | None = None):
     return Option(label, value=label, selected=label == selected)
+
+
+def _value_option(value: str, label: str, selected: str | None = None):
+    return Option(label, value=value, selected=value == selected)
+
+
+def _lang_options(ui_lang: str, selected: str):
+    labels = LANG_LABELS_ZH if _ui_lang(ui_lang) == "zh" else {}
+    return [
+        _value_option(lang, labels.get(lang, lang), selected)
+        for lang in lang_map.keys()
+    ]
+
+
+def _page_options(ui_lang: str, selected: str):
+    labels = PAGE_LABELS_ZH if _ui_lang(ui_lang) == "zh" else {}
+    return [
+        _value_option(page, labels.get(page, page), selected)
+        for page in page_map.keys()
+    ]
+
+
+def _mode_options(ui_lang: str, selected: str):
+    labels = MODE_LABELS_ZH if _ui_lang(ui_lang) == "zh" else {}
+    return [
+        _value_option(mode, labels.get(mode, mode), selected)
+        for mode in ["fast", "precise"]
+    ]
 
 
 def _field(label: str, child):
@@ -800,23 +855,20 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 _field(
                     _t(ui_lang, "translate_from"),
                     Select(
-                        *[
-                            _option(lang, ConfigManager.get("PDF2ZH_LANG_FROM", "English"))
-                            for lang in lang_map.keys()
-                        ],
+                        *_lang_options(
+                            ui_lang,
+                            ConfigManager.get("PDF2ZH_LANG_FROM", "English"),
+                        ),
                         name="lang_from",
                     ),
                 ),
                 _field(
                     _t(ui_lang, "translate_to"),
                     Select(
-                        *[
-                            _option(
-                                lang,
-                                ConfigManager.get("PDF2ZH_LANG_TO", "Simplified Chinese"),
-                            )
-                            for lang in lang_map.keys()
-                        ],
+                        *_lang_options(
+                            ui_lang,
+                            ConfigManager.get("PDF2ZH_LANG_TO", "Simplified Chinese"),
+                        ),
                         name="lang_to",
                     ),
                 ),
@@ -824,7 +876,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             ),
             _field(
                 _t(ui_lang, "pages"),
-                Select(*[_option(page, list(page_map.keys())[0]) for page in page_map.keys()], name="page_range"),
+                Select(
+                    *_page_options(ui_lang, list(page_map.keys())[0]),
+                    name="page_range",
+                ),
             ),
             _field(_t(ui_lang, "page_range"), Input(type="text", name="page_input", placeholder="1,3,5-7")),
             Details(
@@ -839,7 +894,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     ),
                     _field(
                         _t(ui_lang, "translation_mode"),
-                        Select(_option("fast", "fast"), _option("precise", "fast"), name="mode_choice"),
+                        Select(*_mode_options(ui_lang, "fast"), name="mode_choice"),
                     ),
                     cls="stack",
                 ),
