@@ -377,22 +377,55 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
         return Div(H2("Translated"), P("Run a translation to create output files."), id="result")
     mono_name = Path(mono).name
     dual_name = Path(dual).name
+    mono_url = f"/file?name={quote(mono_name)}"
+    dual_url = f"/file?name={quote(dual_name)}"
     return Div(
         H2("Translated"),
         Div(
+            Label(
+                Input(
+                    type="radio",
+                    name="translated_view",
+                    value="mono",
+                    checked=True,
+                    data_url=mono_url,
+                ),
+                "Mono",
+            ),
+            Label(
+                Input(
+                    type="radio",
+                    name="translated_view",
+                    value="dual",
+                    data_url=dual_url,
+                ),
+                "Dual",
+            ),
+            cls="radio-row",
+        ),
+        Div(
             A(
                 "Download Translation (Mono)",
-                href=f"/file?name={quote(mono_name)}",
+                href=mono_url,
                 cls="button",
             ),
             A(
                 "Download Translation (Dual)",
-                href=f"/file?name={quote(dual_name)}",
+                href=dual_url,
                 cls="button secondary",
             ),
             cls="actions",
         ),
-        Iframe(src=f"/file?name={quote(mono_name)}", title="Document Preview"),
+        Iframe(id="translated-frame", src=mono_url, title="Translated Document"),
+        Script(
+            """
+            document.querySelectorAll('input[name="translated_view"]').forEach((input) => {
+                input.addEventListener('change', (event) => {
+                    document.getElementById('translated-frame').src = event.target.dataset.url;
+                });
+            });
+            """
+        ),
         id="result",
         cls="result",
     )
@@ -493,6 +526,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .stack { display: grid; gap: .75rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+                .radio-row { display: flex; gap: 1rem; align-items: center; margin-bottom: .75rem; }
+                .radio-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
+                .radio-row input { margin: 0; }
                 .secondary { background: #eef2f7; color: #243042; border-color: #d8dee8; }
                 .muted { color: #687386; font-size: .9rem; }
                 .error { border-color: #d33; color: #9b1c1c; }
@@ -714,7 +750,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 )
                 return _page(
                     Div(A("Start another translation", href="/", cls="button secondary"), cls="actions"),
-                    Div(_preview_panel(Path(mono).name), _result_panel(mono, dual), cls="stack"),
+                    _result_panel(mono, dual),
                 )
             except Exception as exc:
                 logger.exception("GUI translation failed")
