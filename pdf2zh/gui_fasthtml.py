@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import threading
+import time
 import uuid
 import webbrowser
 from asyncio import CancelledError
@@ -212,6 +213,8 @@ UI_TEXT = {
         "progress_cancel": "Cancel translation",
         "progress_wait": "Preparing progress...",
         "run_settings": "Settings used for this translation",
+        "elapsed_time": "Elapsed",
+        "time_spent": "Time spent",
         "source": "Source",
         "yes": "Yes",
         "no": "No",
@@ -263,6 +266,8 @@ UI_TEXT = {
         "progress_cancel": "取消翻译",
         "progress_wait": "正在准备进度...",
         "run_settings": "本次翻译设置",
+        "elapsed_time": "已用时间",
+        "time_spent": "总用时",
         "source": "来源",
         "yes": "是",
         "no": "否",
@@ -397,6 +402,7 @@ def stop_translate_file(session_id: str | None) -> None:
         translation_jobs[session_id]["message"] = "Cancellation requested"
         translation_jobs[session_id]["status"] = "error"
         translation_jobs[session_id]["error"] = "Translation cancelled"
+        translation_jobs[session_id]["finished_at"] = time.time()
 
 
 def shutdown_translation_jobs() -> None:
@@ -415,6 +421,7 @@ def shutdown_translation_jobs() -> None:
         job["progress"] = 1.0
         job["message"] = "Server stopped"
         job["error"] = "Server stopped"
+        job["finished_at"] = time.time()
         job.pop("process", None)
     cancellation_event_map.clear()
 
@@ -806,12 +813,32 @@ def _translated_download_name(name: str, variant: str) -> str:
     return f"{stem}_{variant}.pdf"
 
 
+def _format_duration(seconds: float | int | None) -> str:
+    if seconds is None:
+        seconds = 0
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:d}:{secs:02d}"
+
+
+def _job_elapsed_seconds(job: dict[str, T.Any]) -> float:
+    started_at = job.get("started_at")
+    if not started_at:
+        return 0
+    finished_at = job.get("finished_at") or time.time()
+    return max(0, float(finished_at) - float(started_at))
+
+
 def _result_panel(
     mono: str | None = None,
     dual: str | None = None,
     error: str | None = None,
     autohide: bool = False,
     ui_lang: str = "zh",
+    elapsed_seconds: float | None = None,
 ):
     if error:
         return Div(H2(_t(ui_lang, "translation_failed")), P(error), cls="result error", id="result")
@@ -830,6 +857,10 @@ def _result_panel(
     return Div(
         Div(
             H2(_t(ui_lang, "translated")),
+            Span(
+                f"{_t(ui_lang, 'time_spent')}: {_format_duration(elapsed_seconds)}",
+                cls="muted elapsed-time",
+            ),
             Div(
                 Label(
                     Input(
@@ -1038,6 +1069,11 @@ def _progress_page(session_id: str, ui_lang: str = "zh", autohide: bool = False)
             H2(_t(ui_lang, "progress_title")),
             Progress(id="translation-progress", value="0", max="100"),
             P(_t(ui_lang, "progress_wait"), id="translation-progress-text", cls="muted"),
+            P(
+                f"{_t(ui_lang, 'elapsed_time')}: {_format_duration(_job_elapsed_seconds(job))}",
+                id="translation-elapsed-time",
+                cls="muted elapsed-time",
+            ),
             _run_settings_panel(settings, ui_lang),
             Form(
                 Input(type="hidden", name="session_id", value=session_id),
@@ -1054,11 +1090,13 @@ def _progress_page(session_id: str, ui_lang: str = "zh", autohide: bool = False)
                 f"""
                 const progressBar = document.getElementById('translation-progress');
                 const progressText = document.getElementById('translation-progress-text');
+                const elapsedTime = document.getElementById('translation-elapsed-time');
                 async function pollTranslationProgress() {{
                     const response = await fetch('/progress/{session_id}');
                     const state = await response.json();
                     progressBar.value = Math.round((state.progress || 0) * 100);
                     progressText.textContent = state.message || '';
+                    elapsedTime.textContent = `{_t(ui_lang, 'elapsed_time')}: ${{state.elapsed_text || '0:00'}}`;
                     if (state.status === 'done' || state.status === 'error') {{
                         window.location = '/result/{session_id}?ui_lang={_ui_lang(ui_lang)}';
                         return;
@@ -1202,6 +1240,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
                 .result-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; margin-bottom: .75rem; }
                 .result-toolbar h2 { margin: 0; }
+                .elapsed-time { white-space: nowrap; }
                 .result-toolbar .toggle-row, .result-toolbar .radio-row, .result-toolbar .actions { margin: 0; }
                 .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .25rem; }
                 .toggle-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
@@ -1591,6 +1630,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             "message": _t(ui_lang, "progress_starting"),
             "autohide": autohide,
             "ui_lang": ui_lang,
+            "started_at": time.time(),
         }
         params = {
             "file_type": form.get("file_type", "File"),
@@ -1643,6 +1683,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                             }
                         )
                     elif event_type == "done":
+                        finished_at = time.time()
                         translation_jobs[session_id].update(
                             {
                                 "status": "done",
@@ -1650,16 +1691,19 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                                 "message": _t(ui_lang, "translated"),
                                 "mono": event["mono"],
                                 "dual": event["dual"],
+                                "finished_at": finished_at,
                             }
                         )
                         break
                     elif event_type == "error":
+                        finished_at = time.time()
                         translation_jobs[session_id].update(
                             {
                                 "status": "error",
                                 "progress": 1.0,
                                 "message": event.get("message", "Unknown error"),
                                 "error": event.get("message", "Unknown error"),
+                                "finished_at": finished_at,
                             }
                         )
                         break
@@ -1681,6 +1725,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                             "progress": 1.0,
                             "message": message,
                             "error": message,
+                            "finished_at": time.time(),
                         }
                     )
                     break
@@ -1707,11 +1752,14 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             return JSONResponse(
                 {"status": "error", "progress": 1.0, "message": "Unknown job"}
             )
+        elapsed_seconds = _job_elapsed_seconds(job)
         return JSONResponse(
             {
                 "status": job.get("status", "running"),
                 "progress": job.get("progress", 0.0),
                 "message": job.get("message", ""),
+                "elapsed_seconds": elapsed_seconds,
+                "elapsed_text": _format_duration(elapsed_seconds),
             }
         )
 
@@ -1744,6 +1792,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     job.get("dual"),
                     autohide=autohide,
                     ui_lang=ui_lang,
+                    elapsed_seconds=_job_elapsed_seconds(job),
                 ),
                 autohide=autohide,
                 ui_lang=ui_lang,
