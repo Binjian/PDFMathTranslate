@@ -250,7 +250,8 @@ UI_TEXT = {
 
 
 def _ui_lang(lang: str | None) -> str:
-    return "zh" if str(lang or "").lower().startswith("zh") else "en"
+    lang = str(lang or "zh").lower()
+    return "en" if lang.startswith("en") else "zh"
 
 
 def _t(lang: str | None, key: str) -> str:
@@ -460,7 +461,7 @@ def _checkbox(label: str, name: str, checked: bool = False):
     return Label(Input(type="checkbox", name=name, value="true", checked=checked), label)
 
 
-def _service_env_fields(service: str, ui_lang: str = "en"):
+def _service_env_fields(service: str, ui_lang: str = "zh"):
     translator = service_map[service]
     fields = [Input(type="hidden", name=f"env_{i}", value="") for i in range(4)]
     for i, env in enumerate(translator.envs.items()):
@@ -485,7 +486,7 @@ def _result_panel(
     dual: str | None = None,
     error: str | None = None,
     autohide: bool = False,
-    ui_lang: str = "en",
+    ui_lang: str = "zh",
 ):
     if error:
         return Div(H2(_t(ui_lang, "translation_failed")), P(error), cls="result error", id="result")
@@ -566,7 +567,7 @@ def _result_panel(
     )
 
 
-def _preview_panel(filename: str | None = None, autohide: bool = False, ui_lang: str = "en"):
+def _preview_panel(filename: str | None = None, autohide: bool = False, ui_lang: str = "zh"):
     src = f"/file?name={quote(filename)}" if filename else ""
     return Div(
         H2(_t(ui_lang, "preview")),
@@ -603,7 +604,7 @@ def _authorized(req, user_list: list[tuple[str, str]], auth_message: str):
     return None
 
 
-def _page(*children, autohide: bool = False, ui_lang: str = "en"):
+def _page(*children, autohide: bool = False, ui_lang: str = "zh"):
     recaptcha = []
     if flag_demo:
         recaptcha = [
@@ -710,7 +711,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
     )
 
     @rt("/")
-    def index(req, ui_lang: str = "en"):
+    def index(req, ui_lang: str = "zh"):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
@@ -881,7 +882,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         )
 
     @rt("/service-fields")
-    def service_fields(req, service: str, ui_lang: str = "en"):
+    def service_fields(req, service: str, ui_lang: str = "zh"):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
