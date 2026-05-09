@@ -759,7 +759,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         return _page(
             Div(
                 Div(H2("File"), form, details, cls="control-panel"),
-                Div(_preview_panel(), _result_panel(), cls="stack"),
+                Div(_preview_panel(), cls="stack"),
                 cls="layout",
             )
         )
