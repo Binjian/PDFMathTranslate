@@ -783,12 +783,13 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 """
                 :root { --pico-border-radius: 6px; }
                 body { background: #f7f8fb; }
-                .app-shell { width: 100%; max-width: none; padding-left: 1rem; padding-right: 1rem; }
+                .app-shell { width: 100%; max-width: none; padding: clamp(.5rem, 1.5vw, 1.25rem); }
                 header { margin-bottom: 1.25rem; }
                 header h1 { font-size: 1.8rem; margin-bottom: .25rem; }
-                .layout { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 1.25rem; align-items: start; }
+                .layout { display: grid; grid-template-columns: clamp(320px, 26vw, 460px) minmax(0, 1fr); gap: clamp(.75rem, 1.5vw, 1.5rem); align-items: start; }
                 .control-panel, .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 1rem; }
-                .preview, .result { width: 100%; grid-column: 1 / -1; }
+                .preview, .result { width: 100%; }
+                .result { grid-column: 1 / -1; }
                 .stack { display: grid; gap: .75rem; }
                 .split { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
                 .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
@@ -804,7 +805,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .secondary { background: #eef2f7; color: #243042; border-color: #d8dee8; }
                 .muted { color: #687386; font-size: .9rem; }
                 .error { border-color: #d33; color: #9b1c1c; }
-                iframe { display: block; width: 100%; height: min(82vh, 1200px); border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
+                iframe { display: block; width: 100%; height: min(78vh, 1200px); border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
                 .autohide { padding-top: .5rem; }
                 .autohide .page-header, .autohide .control-panel { display: none; }
                 .autohide .autohide-exit { display: inline-flex; }
@@ -817,9 +818,27 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .autohide .result-toolbar a.button, .autohide .result-toolbar button, .autohide .result-toolbar [role="button"] { width: auto; padding: .25rem .55rem; margin: 0; font-size: .875rem; }
                 .autohide .result #translated-frame { height: calc(100vh - 3.25rem); }
                 details { margin-top: .75rem; }
+                @media (min-width: 1500px) {
+                    .layout { grid-template-columns: clamp(360px, 24vw, 500px) minmax(0, 1fr); }
+                    iframe { height: calc(100vh - 9.5rem); }
+                }
+                @media (max-width: 1200px) {
+                    .layout { grid-template-columns: minmax(280px, 36vw) minmax(0, 1fr); }
+                    .control-panel { padding: .85rem; }
+                    iframe { height: 72vh; }
+                }
                 @media (max-width: 900px) {
                     .layout, .split { grid-template-columns: 1fr; }
-                    iframe { height: 70vh; }
+                    .control-panel { max-width: none; }
+                    iframe { height: 68vh; }
+                    header { margin-bottom: .75rem; }
+                    header h1 { font-size: 1.45rem; }
+                }
+                @media (max-width: 560px) {
+                    .app-shell { padding: .5rem; }
+                    .control-panel, .panel { padding: .75rem; }
+                    iframe { height: 62vh; }
+                    .actions { gap: .5rem; }
                 }
                 """
             ),
