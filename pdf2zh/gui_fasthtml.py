@@ -782,30 +782,38 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             Style(
                 """
                 :root { --pico-border-radius: 6px; }
+                html { font-size: clamp(13px, .78vw + 8px, 16px); }
                 body { background: #f7f8fb; }
-                .app-shell { width: 100%; max-width: none; padding: clamp(.5rem, 1.5vw, 1.25rem); }
-                header { margin-bottom: 1.25rem; }
-                header h1 { font-size: 1.8rem; margin-bottom: .25rem; }
-                .layout { display: grid; grid-template-columns: clamp(320px, 26vw, 460px) minmax(0, 1fr); gap: clamp(.75rem, 1.5vw, 1.5rem); align-items: start; }
-                .control-panel, .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 1rem; }
+                .app-shell { width: 100%; max-width: none; padding: clamp(.4rem, 1.1vw, 1rem); }
+                header { margin-bottom: clamp(.35rem, 1vh, .9rem); }
+                header h1 { font-size: clamp(1.15rem, 1.2vw + .85rem, 1.7rem); margin-bottom: .15rem; line-height: 1.15; }
+                header p { margin-bottom: 0; font-size: .9rem; }
+                h2 { font-size: clamp(1rem, .7vw + .85rem, 1.25rem); margin-bottom: .45rem; }
+                label, summary, input, select, textarea, button, .button { font-size: .9rem; }
+                input, select, textarea { min-height: 2rem; padding: .35rem .5rem; margin-bottom: .45rem; }
+                input[type="checkbox"], input[type="radio"] { min-height: 0; }
+                button, .button, [role="button"] { padding: .4rem .7rem; margin-bottom: 0; }
+                .layout { display: grid; grid-template-columns: clamp(280px, 25vw, 420px) minmax(0, 1fr); gap: clamp(.5rem, 1vw, 1rem); align-items: start; }
+                .control-panel, .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: clamp(.55rem, .9vw, .85rem); }
+                .control-panel { max-height: calc(100vh - 5.5rem); overflow: auto; scrollbar-gutter: stable; }
                 .preview, .result { width: 100%; }
                 .result { grid-column: 1 / -1; }
-                .stack { display: grid; gap: .75rem; }
-                .split { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-                .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+                .stack { display: grid; gap: .45rem; }
+                .split { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+                .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
                 .result-toolbar { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; margin-bottom: .75rem; }
                 .result-toolbar h2 { margin: 0; }
                 .result-toolbar .toggle-row, .result-toolbar .radio-row, .result-toolbar .actions { margin: 0; }
-                .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+                .toggle-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .45rem; }
                 .toggle-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
                 .autohide-exit { display: none; position: fixed; top: .5rem; right: 1rem; z-index: 10; width: auto; padding: .35rem .65rem; }
-                .radio-row { display: flex; gap: 1rem; align-items: center; margin-bottom: .75rem; }
+                .radio-row { display: flex; gap: 1rem; align-items: center; margin-bottom: .45rem; }
                 .radio-row label { display: inline-flex; width: auto; gap: .35rem; align-items: center; margin: 0; }
                 .radio-row input, .toggle-row input { margin: 0; }
                 .secondary { background: #eef2f7; color: #243042; border-color: #d8dee8; }
-                .muted { color: #687386; font-size: .9rem; }
+                .muted { color: #687386; font-size: .85rem; }
                 .error { border-color: #d33; color: #9b1c1c; }
-                iframe { display: block; width: 100%; height: min(78vh, 1200px); border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
+                iframe { display: block; width: 100%; height: calc(100vh - clamp(7rem, 12vh, 10rem)); min-height: 24rem; border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
                 .autohide { padding-top: .5rem; }
                 .autohide .page-header, .autohide .control-panel { display: none; }
                 .autohide .autohide-exit { display: inline-flex; }
@@ -818,27 +826,38 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .autohide .result-toolbar a.button, .autohide .result-toolbar button, .autohide .result-toolbar [role="button"] { width: auto; padding: .25rem .55rem; margin: 0; font-size: .875rem; }
                 .autohide .result #translated-frame { height: calc(100vh - 3.25rem); }
                 details { margin-top: .75rem; }
+                details > div { margin-top: .5rem; }
                 @media (min-width: 1500px) {
-                    .layout { grid-template-columns: clamp(360px, 24vw, 500px) minmax(0, 1fr); }
-                    iframe { height: calc(100vh - 9.5rem); }
+                    .layout { grid-template-columns: clamp(320px, 22vw, 460px) minmax(0, 1fr); }
+                    iframe { height: calc(100vh - 8.25rem); }
                 }
                 @media (max-width: 1200px) {
-                    .layout { grid-template-columns: minmax(280px, 36vw) minmax(0, 1fr); }
-                    .control-panel { padding: .85rem; }
-                    iframe { height: 72vh; }
+                    .layout { grid-template-columns: minmax(260px, 34vw) minmax(0, 1fr); }
+                    .control-panel { padding: .65rem; }
+                    iframe { height: calc(100vh - 7.5rem); min-height: 22rem; }
                 }
                 @media (max-width: 900px) {
                     .layout, .split { grid-template-columns: 1fr; }
-                    .control-panel { max-width: none; }
-                    iframe { height: 68vh; }
+                    .control-panel { max-width: none; max-height: none; overflow: visible; }
+                    iframe { height: 62vh; min-height: 20rem; }
                     header { margin-bottom: .75rem; }
                     header h1 { font-size: 1.45rem; }
                 }
                 @media (max-width: 560px) {
                     .app-shell { padding: .5rem; }
-                    .control-panel, .panel { padding: .75rem; }
-                    iframe { height: 62vh; }
+                    .control-panel, .panel { padding: .55rem; }
+                    iframe { height: 56vh; min-height: 18rem; }
                     .actions { gap: .5rem; }
+                }
+                @media (max-height: 760px) and (min-width: 901px) {
+                    html { font-size: 13px; }
+                    header { margin-bottom: .35rem; }
+                    header p { display: none; }
+                    h2 { margin-bottom: .3rem; }
+                    .control-panel { max-height: calc(100vh - 3.5rem); }
+                    .stack { gap: .3rem; }
+                    input, select, textarea { min-height: 1.8rem; padding-top: .25rem; padding-bottom: .25rem; margin-bottom: .3rem; }
+                    iframe { height: calc(100vh - 4.25rem); min-height: 18rem; }
                 }
                 """
             ),
