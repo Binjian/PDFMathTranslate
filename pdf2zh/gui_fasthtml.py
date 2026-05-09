@@ -9,6 +9,7 @@ import uuid
 import webbrowser
 from asyncio import CancelledError
 from pathlib import Path
+from urllib.parse import quote
 import typing as T
 
 import anyio
@@ -379,18 +380,26 @@ def _result_panel(mono: str | None = None, dual: str | None = None, error: str |
     return Div(
         H2("Translated"),
         Div(
-            A("Download Translation (Mono)", href=f"/files/{mono_name}", cls="button"),
-            A("Download Translation (Dual)", href=f"/files/{dual_name}", cls="button secondary"),
+            A(
+                "Download Translation (Mono)",
+                href=f"/file?name={quote(mono_name)}",
+                cls="button",
+            ),
+            A(
+                "Download Translation (Dual)",
+                href=f"/file?name={quote(dual_name)}",
+                cls="button secondary",
+            ),
             cls="actions",
         ),
-        Iframe(src=f"/files/{mono_name}", title="Document Preview"),
+        Iframe(src=f"/file?name={quote(mono_name)}", title="Document Preview"),
         id="result",
         cls="result",
     )
 
 
 def _preview_panel(filename: str | None = None):
-    src = f"/files/{filename}" if filename else ""
+    src = f"/file?name={quote(filename)}" if filename else ""
     return Div(H2("Preview"), Iframe(src=src, title="Document Preview"), cls="preview")
 
 
@@ -680,11 +689,12 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 
         return await anyio.to_thread.run_sync(run_translation)
 
-    @rt("/files/{name}")
-    def files(req, name: str):
+    @rt("/file")
+    def file(req, name: str):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
+        name = os.path.basename(name)
         path = (OUTPUT_DIR / name).resolve()
         root = OUTPUT_DIR.resolve()
         if root not in path.parents and path != root:
