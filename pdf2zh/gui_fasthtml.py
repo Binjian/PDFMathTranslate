@@ -13,8 +13,6 @@ from urllib.parse import quote
 import typing as T
 
 import anyio
-from babeldoc import __version__ as babeldoc_version
-from babeldoc.docvision.doclayout import OnnxModel
 from fasthtml.common import *
 import requests
 from starlette.datastructures import UploadFile
@@ -53,6 +51,13 @@ from pdf2zh.translator import (
 
 logger = logging.getLogger(__name__)
 OUTPUT_DIR = Path("pdf2zh_files")
+GUI_BACKEND = "auto"
+GUI_ONNX: str | None = None
+
+try:
+    from babeldoc import __version__ as babeldoc_version
+except Exception:
+    babeldoc_version = "unknown"
 
 
 class GuiError(RuntimeError):
@@ -67,6 +72,8 @@ class _LazyModel:
 
     def _ensure_loaded(self):
         if self._model is None:
+            from babeldoc.docvision.doclayout import OnnxModel
+
             self._model = OnnxModel.load_available()
 
     def __getattr__(self, name):
@@ -276,7 +283,11 @@ def translate_file(
     try:
         from pdf2zh.kernel import KernelRegistry
         from pdf2zh.kernel.protocol import TranslateRequest
+        from pdf2zh.doclayout import ModelInstance, OnnxModel, set_backend
 
+        set_backend(GUI_BACKEND)
+        if GUI_ONNX and ModelInstance.value is None:
+            ModelInstance.value = OnnxModel(GUI_ONNX)
         KernelRegistry.switch(mode_choice)
         kernel = KernelRegistry.get()
         request = TranslateRequest(
@@ -782,8 +793,16 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 
 
 def setup_gui(
-    share: bool = False, auth_file: list = ["", ""], server_port=7860
+    share: bool = False,
+    auth_file: list = ["", ""],
+    server_port=7860,
+    backend: str = "auto",
+    onnx: str | None = None,
 ) -> None:
+    global GUI_BACKEND, GUI_ONNX
+    GUI_BACKEND = backend
+    GUI_ONNX = onnx
+
     user_list, html = parse_user_passwd(auth_file)
     app = create_app(user_list, html)
 

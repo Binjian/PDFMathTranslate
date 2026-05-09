@@ -277,6 +277,26 @@ def main(args: Optional[List[str]] = None) -> int:
     if parsed_args.debug:
         log.setLevel(logging.DEBUG)
 
+    if parsed_args.interactive:
+        from pdf2zh.gui import setup_gui
+
+        if parsed_args.serverport:
+            setup_gui(
+                parsed_args.share,
+                parsed_args.authorized,
+                int(parsed_args.serverport),
+                parsed_args.backend,
+                parsed_args.onnx,
+            )
+        else:
+            setup_gui(
+                parsed_args.share,
+                parsed_args.authorized,
+                backend=parsed_args.backend,
+                onnx=parsed_args.onnx,
+            )
+        return 0
+
     from pdf2zh.doclayout import ModelInstance, OnnxModel, set_backend
 
     set_backend(parsed_args.backend)
@@ -285,17 +305,6 @@ def main(args: Optional[List[str]] = None) -> int:
         ModelInstance.value = OnnxModel(parsed_args.onnx)
     else:
         ModelInstance.value = OnnxModel.load_available()
-
-    if parsed_args.interactive:
-        from pdf2zh.gui import setup_gui
-
-        if parsed_args.serverport:
-            setup_gui(
-                parsed_args.share, parsed_args.authorized, int(parsed_args.serverport)
-            )
-        else:
-            setup_gui(parsed_args.share, parsed_args.authorized)
-        return 0
 
     if parsed_args.flask:
         from pdf2zh.backend import flask_app
