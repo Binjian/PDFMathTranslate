@@ -230,7 +230,12 @@ def translate_file(
     if file_type == "File":
         if not file_input:
             raise GuiError("No input")
-        file_path = shutil.copy(file_input, OUTPUT_DIR)
+        source_path = Path(file_input)
+        destination_path = OUTPUT_DIR / source_path.name
+        if source_path.resolve() == destination_path.resolve():
+            file_path = source_path
+        else:
+            file_path = Path(shutil.copy(source_path, OUTPUT_DIR))
     else:
         if not link_input:
             raise GuiError("No input")
