@@ -162,6 +162,7 @@ else:
 hidden_secret_details: bool = bool(ConfigManager.get("HIDDEN_GRADIO_DETAILS"))
 cancellation_event_map = {}
 translation_jobs: dict[str, dict[str, T.Any]] = {}
+GUI_LAST_SETTINGS_KEY = "PDF2ZH_GUI_LAST_SETTINGS"
 
 UI_TEXT = {
     "en": {
@@ -943,6 +944,60 @@ def _run_settings_panel(settings: list[tuple[str, str]], ui_lang: str):
     )
 
 
+def _sanitize_saved_params(params: dict[str, T.Any]) -> dict[str, T.Any]:
+    saved_keys = {
+        "file_type",
+        "link_input",
+        "service",
+        "lang_from",
+        "lang_to",
+        "page_range",
+        "page_input",
+        "prompt",
+        "threads",
+        "skip_subset_fonts",
+        "ignore_cache",
+        "vfont",
+        "mode_choice",
+    }
+    saved = {key: params.get(key, "") for key in saved_keys}
+    saved["file_input"] = ""
+    translator = service_map.get(str(params.get("service") or ""))
+    if translator:
+        for i, env_name in enumerate(translator.envs.keys()):
+            if str(env_name).upper().endswith("API_KEY"):
+                continue
+            saved[f"env_{i}"] = params.get(f"env_{i}", "")
+    return saved
+
+
+def _save_last_gui_settings(
+    params: dict[str, T.Any],
+    ui_lang: str,
+    autohide: bool,
+) -> None:
+    try:
+        ConfigManager.set(
+            GUI_LAST_SETTINGS_KEY,
+            {
+                "params": _sanitize_saved_params(params),
+                "ui_lang": _ui_lang(ui_lang),
+                "autohide": bool(autohide),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Unable to save GUI settings: %s", exc)
+
+
+def _load_last_gui_settings() -> dict[str, T.Any]:
+    try:
+        settings = ConfigManager.get(GUI_LAST_SETTINGS_KEY)
+    except Exception as exc:
+        logger.warning("Unable to load GUI settings: %s", exc)
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
 def _progress_page(session_id: str, ui_lang: str = "zh", autohide: bool = False):
     job = translation_jobs.get(session_id, {})
     settings = job.get("settings", [])
@@ -1187,7 +1242,12 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         ui_lang = _ui_lang(ui_lang)
         session_id = str(uuid.uuid4())
         seed_job = translation_jobs.get(settings_from) if settings_from else None
-        seed_params = dict(seed_job.get("params", {})) if seed_job else {}
+        saved_settings = {} if seed_job else _load_last_gui_settings()
+        seed_params = dict(
+            seed_job.get("params", {})
+            if seed_job
+            else saved_settings.get("params", {})
+        )
         default_service = str(seed_params.get("service") or enabled_services[0])
         if default_service not in enabled_services:
             default_service = enabled_services[0]
@@ -1197,7 +1257,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         page_range = str(seed_params.get("page_range") or list(page_map.keys())[0])
         if page_range not in page_map:
             page_range = list(page_map.keys())[0]
-        autohide_checked = bool(seed_job.get("autohide")) if seed_job else False
+        autohide_checked = bool(
+            seed_job.get("autohide") if seed_job else saved_settings.get("autohide")
+        )
         env_overrides = {
             f"env_{i}": str(seed_params.get(f"env_{i}") or "")
             for i in range(4)
@@ -1522,6 +1584,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         }
         translation_jobs[session_id]["params"] = dict(params)
         translation_jobs[session_id]["settings"] = _run_settings(params, ui_lang)
+        _save_last_gui_settings(params, ui_lang, autohide)
 
         def run_translation_job():
             ctx = multiprocessing.get_context("spawn")
