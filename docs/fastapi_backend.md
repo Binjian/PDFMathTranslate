@@ -182,6 +182,23 @@ curl http://127.0.0.1:7861/v1/translate \
   -F "lang_to=Simplified Chinese"
 ```
 
+**Local Ollama model (`qwen3.6:latest`):**
+
+```bash
+curl http://127.0.0.1:7861/v1/translate \
+  -F "file=@paper.pdf" \
+  -F "service=Ollama" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese" \
+  -F "env_0=http://172.27.74.16:11434" \
+  -F "env_1=qwen3.6:latest"
+```
+**That works if paper.pdf is in your current working directory. If it is elsewhere, use a relative or absolute path, for example -F "file=@./docs/paper.pdf" or -F "file=@/full/path/paper.pdf".**
+
+For `Ollama`, `env_0` sets the local Ollama host and `env_1` selects the
+installed model. Service names are case-sensitive; use `Ollama` rather than
+`ollama`.
+
 **URL download:**
 
 ```bash
