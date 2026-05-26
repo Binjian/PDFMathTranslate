@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch
 
@@ -39,6 +40,34 @@ class TestApiBackendClient(unittest.TestCase):
             _FakeClient.requests,
             [("GET", "http://172.27.74.16:7861/health", {"timeout": 5})],
         )
+
+    def test_environment_url_overrides_persisted_api_url(self):
+        with (
+            patch.dict(
+                os.environ,
+                {"PDF2ZH_API_BASE_URL": "http://172.27.74.16:7861/"},
+            ),
+            patch.object(gui_fasthtml.ConfigManager, "get") as config_get,
+        ):
+            self.assertEqual(
+                gui_fasthtml._configured_api_base_url(),
+                "http://172.27.74.16:7861",
+            )
+
+        config_get.assert_not_called()
+
+    def test_empty_environment_url_disables_persisted_api_url(self):
+        with (
+            patch.dict(os.environ, {"PDF2ZH_API_BASE_URL": ""}),
+            patch.object(
+                gui_fasthtml.ConfigManager,
+                "get",
+                return_value="http://old-api-host:7861",
+            ) as config_get,
+        ):
+            self.assertEqual(gui_fasthtml._configured_api_base_url(), "")
+
+        config_get.assert_not_called()
 
 
 if __name__ == "__main__":

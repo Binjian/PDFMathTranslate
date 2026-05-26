@@ -60,9 +60,18 @@ OUTPUT_DIR = Path("pdf2zh_files")
 GUI_BACKEND = "auto"
 GUI_ONNX: str | None = None
 
+
+def _configured_api_base_url() -> str:
+    """Return the backend URL, allowing launch-time environment overrides."""
+    api_base_url = os.environ.get("PDF2ZH_API_BASE_URL")
+    if api_base_url is None:
+        api_base_url = ConfigManager.get("PDF2ZH_API_BASE_URL")
+    return (api_base_url or "").rstrip("/")
+
+
 # When set, the GUI delegates translation to the FastAPI backend at this URL.
 # Example: PDF2ZH_API_BASE_URL=http://127.0.0.1:7861
-API_BASE_URL: str = (ConfigManager.get("PDF2ZH_API_BASE_URL") or "").rstrip("/")
+API_BASE_URL: str = _configured_api_base_url()
 
 
 def _request_api_backend(method: str, url: str, **kwargs) -> httpx.Response:
