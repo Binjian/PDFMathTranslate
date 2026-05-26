@@ -208,6 +208,26 @@ def create_parser() -> argparse.ArgumentParser:
         "--sse", action="store_true", help="Launch pdf2zh MCP server in SSE mode"
     )
 
+    parse_params.add_argument(
+        "--api",
+        action="store_true",
+        help="Launch the FastAPI translation backend (binds to 0.0.0.0 by default).",
+    )
+
+    parse_params.add_argument(
+        "--api-host",
+        type=str,
+        default=None,
+        help="Host for the FastAPI backend (default: 0.0.0.0).",
+    )
+
+    parse_params.add_argument(
+        "--api-port",
+        type=int,
+        default=None,
+        help="Port for the FastAPI backend (default: 7861).",
+    )
+
     return parser
 
 
@@ -276,6 +296,15 @@ def main(args: Optional[List[str]] = None) -> int:
 
     if parsed_args.debug:
         log.setLevel(logging.DEBUG)
+
+    if parsed_args.api:
+        from pdf2zh.api_server import run_api_server
+
+        run_api_server(
+            host=parsed_args.api_host,
+            port=parsed_args.api_port,
+        )
+        return 0
 
     if parsed_args.interactive:
         from pdf2zh.gui import setup_gui

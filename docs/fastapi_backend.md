@@ -15,6 +15,7 @@
 - [Using the FastHTML GUI as a client](#gui-client)
 - [Running both together](#together)
 - [Code changes summary](#changes)
+- [Cross-host fix: Connection refused](#crosshost)
 
 ---
 
@@ -66,17 +67,30 @@ multiprocessing, no API involved).
 
 <h2 id="start">Starting the API server</h2>
 
-**Via uvicorn directly:**
+**Recommended — via the `pdf2zh` CLI (binds to `0.0.0.0` by default):**
+
+```bash
+pdf2zh --api                          # 0.0.0.0:7861
+pdf2zh --api --api-port 8000          # custom port
+pdf2zh --api --api-host 127.0.0.1    # localhost only
+```
+
+**Via Python module (also binds to `0.0.0.0` by default):**
+
+```bash
+python -m pdf2zh.api_server
+```
+
+**Via uvicorn directly (defaults to `127.0.0.1` — add `--host 0.0.0.0` for cross-host access):**
 
 ```bash
 uvicorn pdf2zh.api_server:app --host 0.0.0.0 --port 7861
 ```
 
-**Via Python module:**
-
-```bash
-python -m pdf2zh.api_server
-```
+> **Warning:** omitting `--host 0.0.0.0` from a plain `uvicorn` command binds
+> the server to `127.0.0.1` only, making it unreachable from other hosts and
+> producing `[Errno 111] Connection refused` on the GUI side.  Use
+> `pdf2zh --api` or `python -m pdf2zh.api_server` to avoid this.
 
 **Programmatically:**
 
@@ -313,8 +327,8 @@ if status["status"] == "done":
 Set `PDF2ZH_API_BASE_URL` before starting the GUI:
 
 ```bash
-# Terminal 1 — API backend
-uvicorn pdf2zh.api_server:app --port 7861
+# Terminal 1 — API backend (binds to 0.0.0.0 by default)
+pdf2zh --api
 
 # Terminal 2 — FastHTML GUI (acts as API client)
 PDF2ZH_API_BASE_URL=http://127.0.0.1:7861 pdf2zh --gui
@@ -374,8 +388,7 @@ volumes:
 **Standalone (single machine):**
 
 ```bash
-PDF2ZH_API_OUTPUT=./api-output \
-  uvicorn pdf2zh.api_server:app --port 7861 &
+PDF2ZH_API_OUTPUT=./api-output pdf2zh --api &
 
 PDF2ZH_API_BASE_URL=http://127.0.0.1:7861 \
   pdf2zh --gui --port 7860
@@ -420,5 +433,105 @@ Key implementation details:
 
 Added `httpx` to the main dependencies list (it was already transitively
 installed but is now an explicit requirement).
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="crosshost">Cross-host fix: Connection refused</h2>
+
+### Problem
+
+When the FastAPI server and the FastHTML GUI run on different machines,
+translation fails immediately with:
+
+```
+[Errno 111] Connection refused
+```
+
+Three issues combined to cause this:
+
+| # | Root cause | Effect |
+|---|-----------|--------|
+| 1 | `uvicorn pdf2zh.api_server:app` binds to `127.0.0.1` by default | All TCP connections from a remote GUI host are refused at the OS level |
+| 2 | `run_api_server()` evaluated `ConfigManager.get(...)` at **import time** as default parameter values | Host/port read from whichever machine imported the module first; could freeze the wrong value |
+| 3 | `_run_api_translation_job` used a single combined `timeout=30` for all phases | Large PDF uploads timed out mid-transfer; `ConnectError` was surfaced as a raw unguided exception |
+
+### Fix
+
+**`pdf2zh/api_server.py` — compute host/port at call time**
+
+`run_api_server()` no longer uses `ConfigManager.get(...)` as a default
+argument (evaluated at import time). The values are now resolved inside the
+function body each time it is called:
+
+```python
+# before — evaluated once at module import
+def run_api_server(
+    host: str = ConfigManager.get("PDF2ZH_API_HOST", "0.0.0.0"),
+    ...
+
+# after — read fresh on every call
+def run_api_server(host: Optional[str] = None, port: Optional[int] = None):
+    _host = host or (ConfigManager.get("PDF2ZH_API_HOST") or "0.0.0.0")
+    _port = port or int(ConfigManager.get("PDF2ZH_API_PORT") or "7861")
+    uvicorn.run(app, host=_host, port=_port)
+```
+
+**`pdf2zh/pdf2zh.py` — new `--api` CLI flag**
+
+The `pdf2zh --api` command starts the API server via `run_api_server()`,
+which defaults to `0.0.0.0` and therefore accepts connections from any host:
+
+```bash
+pdf2zh --api                          # 0.0.0.0:7861
+pdf2zh --api --api-host 0.0.0.0      # explicit
+pdf2zh --api --api-port 8000          # custom port
+```
+
+Three new argparse arguments were added to `create_parser()`:
+`--api`, `--api-host`, `--api-port`.  The handler in `main()` calls
+`run_api_server()` and returns before any model loading, matching the pattern
+of `--flask` and `--interactive`.
+
+**`pdf2zh/gui_fasthtml.py` — preflight check and per-phase timeouts**
+
+`_run_api_translation_job` now:
+
+1. **Preflight `GET /health`** before uploading the PDF.  On
+   `httpx.ConnectError` it fails immediately with a message that names both
+   the problem and the fix:
+
+   ```
+   Cannot connect to API server at http://…
+   Make sure it is running and bound to 0.0.0.0, not 127.0.0.1.
+   Start it with: pdf2zh --api  (or: python -m pdf2zh.api_server)
+   ```
+
+2. **Per-phase `httpx.Timeout`** instead of a single combined value:
+
+   | Phase | Timeout |
+   |-------|---------|
+   | Connect | 10 s |
+   | Write (PDF upload) | unlimited |
+   | Read | 60 s (poll) / 300 s (download) |
+   | Pool | 10 s |
+
+   The unlimited write timeout prevents large PDFs from being cut off
+   mid-upload on a slow link.
+
+3. **`httpx.ConnectError` caught explicitly** at every call site (submit,
+   poll, download) so every failure path produces a message that mentions the
+   `0.0.0.0` bind requirement rather than a bare errno string.
+
+### Quick reference
+
+```bash
+# Server (remote host or same machine — 0.0.0.0 required for cross-host)
+pdf2zh --api --api-host 0.0.0.0 --api-port 7861
+
+# GUI (any host)
+PDF2ZH_API_BASE_URL=http://<server-ip>:7861 pdf2zh --gui
+```
 
 [⬆️ Back to top](#toc)

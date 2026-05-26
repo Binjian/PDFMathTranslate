@@ -628,6 +628,38 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
     """
     api_base = API_BASE_URL
 
+    # Separate timeouts: fast connect check, unlimited write (large PDF upload),
+    # generous read.  A single combined timeout would cut off large uploads.
+    _connect_timeout = httpx.Timeout(connect=10.0, read=60.0, write=None, pool=10.0)
+    _poll_timeout = httpx.Timeout(10.0)
+    _download_timeout = httpx.Timeout(connect=10.0, read=300.0, write=None, pool=10.0)
+
+    def _fail(msg: str) -> None:
+        translation_jobs[session_id].update(
+            {
+                "status": "error",
+                "progress": 1.0,
+                "message": msg,
+                "error": msg,
+                "finished_at": time.time(),
+            }
+        )
+
+    # ── Preflight: verify the API server is reachable before uploading ────
+    try:
+        httpx.get(f"{api_base}/health", timeout=httpx.Timeout(connect=5.0, read=5.0, write=None, pool=5.0))
+    except httpx.ConnectError:
+        _fail(
+            f"Cannot connect to API server at {api_base}. "
+            "Make sure it is running and bound to 0.0.0.0, not 127.0.0.1. "
+            "Start it with: pdf2zh --api  (or: python -m pdf2zh.api_server)"
+        )
+        return
+    except Exception as exc:
+        # Unexpected error on health check — log and continue; the submit will
+        # surface a clearer failure if the server is truly broken.
+        logger.warning("API health check at %s/health failed: %s", api_base, exc)
+
     # ── Submit the job ────────────────────────────────────────────────────
     form_data = {
         "service": params["service"],
@@ -655,11 +687,13 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
                     f"{api_base}/v1/translate",
                     data=form_data,
                     files={"file": (os.path.basename(src), fh, "application/pdf")},
-                    timeout=30,
+                    timeout=_connect_timeout,
                 )
         else:
             form_data["link"] = params.get("link_input", "")
-            resp = httpx.post(f"{api_base}/v1/translate", data=form_data, timeout=30)
+            resp = httpx.post(
+                f"{api_base}/v1/translate", data=form_data, timeout=_connect_timeout
+            )
 
         if resp.status_code != 202:
             raise RuntimeError(f"API returned HTTP {resp.status_code}: {resp.text}")
@@ -667,16 +701,15 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         api_job_id: str = resp.json()["job_id"]
         translation_jobs[session_id]["api_job_id"] = api_job_id
 
-    except Exception as exc:
-        translation_jobs[session_id].update(
-            {
-                "status": "error",
-                "progress": 1.0,
-                "message": str(exc),
-                "error": str(exc),
-                "finished_at": time.time(),
-            }
+    except httpx.ConnectError:
+        _fail(
+            f"Connection refused by API server at {api_base}. "
+            "Ensure the server is running on 0.0.0.0 (not 127.0.0.1): "
+            "pdf2zh --api --api-host 0.0.0.0"
         )
+        return
+    except Exception as exc:
+        _fail(str(exc))
         return
 
     # ── Poll for progress ─────────────────────────────────────────────────
@@ -684,19 +717,14 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         time.sleep(0.5)
         try:
             status_resp = httpx.get(
-                f"{api_base}/v1/translate/{api_job_id}", timeout=10
+                f"{api_base}/v1/translate/{api_job_id}", timeout=_poll_timeout
             )
             data = status_resp.json()
+        except httpx.ConnectError:
+            _fail(f"Lost connection to API server at {api_base} while polling.")
+            return
         except Exception as exc:
-            translation_jobs[session_id].update(
-                {
-                    "status": "error",
-                    "progress": 1.0,
-                    "message": str(exc),
-                    "error": str(exc),
-                    "finished_at": time.time(),
-                }
-            )
+            _fail(str(exc))
             return
 
         translation_jobs[session_id].update(
@@ -710,15 +738,7 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         if status == "done":
             break
         if status == "error":
-            translation_jobs[session_id].update(
-                {
-                    "status": "error",
-                    "progress": 1.0,
-                    "message": data.get("error", "API error"),
-                    "error": data.get("error", "API error"),
-                    "finished_at": time.time(),
-                }
-            )
+            _fail(data.get("error") or "API translation error")
             return
 
     # ── Download result files locally so existing /file and /download routes work ──
@@ -732,7 +752,8 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         paths: dict[str, str] = {}
         for variant in ("mono", "dual"):
             dl = httpx.get(
-                f"{api_base}/v1/translate/{api_job_id}/{variant}", timeout=120
+                f"{api_base}/v1/translate/{api_job_id}/{variant}",
+                timeout=_download_timeout,
             )
             dl.raise_for_status()
             dest = OUTPUT_DIR / f"{stem}-{variant}.pdf"
@@ -751,15 +772,7 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             }
         )
     except Exception as exc:
-        translation_jobs[session_id].update(
-            {
-                "status": "error",
-                "progress": 1.0,
-                "message": str(exc),
-                "error": str(exc),
-                "finished_at": time.time(),
-            }
-        )
+        _fail(str(exc))
 
 
 def parse_user_passwd(file_path: str) -> tuple:

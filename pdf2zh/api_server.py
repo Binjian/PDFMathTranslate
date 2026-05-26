@@ -463,13 +463,23 @@ def download_result(job_id: str, variant: str) -> FileResponse:
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
 def run_api_server(
-    host: str = ConfigManager.get("PDF2ZH_API_HOST", "0.0.0.0"),
-    port: int = int(ConfigManager.get("PDF2ZH_API_PORT", "7861")),
+    host: Optional[str] = None,
+    port: Optional[int] = None,
 ) -> None:
+    """Start the translation API server.
+
+    ``host`` and ``port`` can be overridden by the caller; otherwise they are
+    read from ``PDF2ZH_API_HOST`` / ``PDF2ZH_API_PORT`` env vars at call time,
+    falling back to ``0.0.0.0:7861``.  Using ``0.0.0.0`` is required when the
+    server must accept connections from other hosts.
+    """
     import uvicorn
 
+    _host = host or (ConfigManager.get("PDF2ZH_API_HOST") or "0.0.0.0")
+    _port = port or int(ConfigManager.get("PDF2ZH_API_PORT") or "7861")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    uvicorn.run(app, host=host, port=port)
+    logger.info("Starting pdf2zh API server on http://%s:%s", _host, _port)
+    uvicorn.run(app, host=_host, port=_port)
 
 
 if __name__ == "__main__":
