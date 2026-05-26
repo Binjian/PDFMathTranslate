@@ -64,6 +64,13 @@ GUI_ONNX: str | None = None
 # Example: PDF2ZH_API_BASE_URL=http://127.0.0.1:7861
 API_BASE_URL: str = (ConfigManager.get("PDF2ZH_API_BASE_URL") or "").rstrip("/")
 
+
+def _request_api_backend(method: str, url: str, **kwargs) -> httpx.Response:
+    """Send requests to the configured translation backend without env proxies."""
+    with httpx.Client(trust_env=False) as client:
+        return client.request(method, url, **kwargs)
+
+
 try:
     from babeldoc import __version__ as babeldoc_version
 except Exception:
@@ -409,8 +416,10 @@ def stop_translate_file(session_id: str | None) -> None:
         api_job_id = translation_jobs[session_id].get("api_job_id")
         if api_job_id and API_BASE_URL:
             try:
-                httpx.delete(
-                    f"{API_BASE_URL}/v1/translate/{api_job_id}", timeout=5
+                _request_api_backend(
+                    "DELETE",
+                    f"{API_BASE_URL}/v1/translate/{api_job_id}",
+                    timeout=5,
                 )
             except Exception:
                 pass
@@ -647,7 +656,11 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
 
     # ── Preflight: verify the API server is reachable before uploading ────
     try:
-        httpx.get(f"{api_base}/health", timeout=httpx.Timeout(connect=5.0, read=5.0, write=None, pool=5.0))
+        _request_api_backend(
+            "GET",
+            f"{api_base}/health",
+            timeout=httpx.Timeout(connect=5.0, read=5.0, write=None, pool=5.0),
+        )
     except httpx.ConnectError:
         _fail(
             f"Cannot connect to API server at {api_base}. "
@@ -683,7 +696,8 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         if params["file_type"] == "File" and params.get("file_input"):
             src = params["file_input"]
             with open(src, "rb") as fh:
-                resp = httpx.post(
+                resp = _request_api_backend(
+                    "POST",
                     f"{api_base}/v1/translate",
                     data=form_data,
                     files={"file": (os.path.basename(src), fh, "application/pdf")},
@@ -691,8 +705,11 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
                 )
         else:
             form_data["link"] = params.get("link_input", "")
-            resp = httpx.post(
-                f"{api_base}/v1/translate", data=form_data, timeout=_connect_timeout
+            resp = _request_api_backend(
+                "POST",
+                f"{api_base}/v1/translate",
+                data=form_data,
+                timeout=_connect_timeout,
             )
 
         if resp.status_code != 202:
@@ -716,8 +733,10 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
     while True:
         time.sleep(0.5)
         try:
-            status_resp = httpx.get(
-                f"{api_base}/v1/translate/{api_job_id}", timeout=_poll_timeout
+            status_resp = _request_api_backend(
+                "GET",
+                f"{api_base}/v1/translate/{api_job_id}",
+                timeout=_poll_timeout,
             )
             data = status_resp.json()
         except httpx.ConnectError:
@@ -751,7 +770,8 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
     try:
         paths: dict[str, str] = {}
         for variant in ("mono", "dual"):
-            dl = httpx.get(
+            dl = _request_api_backend(
+                "GET",
                 f"{api_base}/v1/translate/{api_job_id}/{variant}",
                 timeout=_download_timeout,
             )
