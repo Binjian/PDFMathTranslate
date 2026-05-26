@@ -5,6 +5,7 @@
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Starting the API server](#start)
+- [Quick translation with curl](#curl-translate)
 - [Environment variables](#env)
 - [API reference](#api)
   - [Health check](#health)
@@ -102,6 +103,32 @@ run_api_server(host="0.0.0.0", port=7861)
 
 The interactive docs (Swagger UI) are available at `http://127.0.0.1:7861/docs`
 once the server is running.
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="curl-translate">Quick translation with curl</h2>
+
+With the API server running, translate a local PDF from English to Simplified
+Chinese using the default Google service:
+
+```bash
+curl http://127.0.0.1:7861/v1/translate \
+  -F "file=@paper.pdf" \
+  -F "service=Google" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese"
+```
+
+The request starts translation asynchronously and returns a job ID:
+
+```json
+{"job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a"}
+```
+
+Use that ID with the status and download endpoints documented below to retrieve
+the translated PDF when the job is complete.
 
 [⬆️ Back to top](#toc)
 
