@@ -12,6 +12,7 @@ classifiers = [
 ]
 dependencies = [
     "requests",
+    "httpx",
     # for arm64 linux whells
     "pymupdf<1.25.3",
     "tqdm",

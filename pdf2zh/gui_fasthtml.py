@@ -19,6 +19,7 @@ import typing as T
 
 import anyio
 from fasthtml.common import *
+import httpx
 import requests
 from starlette.datastructures import UploadFile
 from starlette.responses import FileResponse, JSONResponse, Response
@@ -58,6 +59,10 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = Path("pdf2zh_files")
 GUI_BACKEND = "auto"
 GUI_ONNX: str | None = None
+
+# When set, the GUI delegates translation to the FastAPI backend at this URL.
+# Example: PDF2ZH_API_BASE_URL=http://127.0.0.1:7861
+API_BASE_URL: str = (ConfigManager.get("PDF2ZH_API_BASE_URL") or "").rstrip("/")
 
 try:
     from babeldoc import __version__ as babeldoc_version
@@ -401,6 +406,14 @@ def stop_translate_file(session_id: str | None) -> None:
         process = translation_jobs[session_id].get("process")
         if process and process.is_alive():
             process.terminate()
+        api_job_id = translation_jobs[session_id].get("api_job_id")
+        if api_job_id and API_BASE_URL:
+            try:
+                httpx.delete(
+                    f"{API_BASE_URL}/v1/translate/{api_job_id}", timeout=5
+                )
+            except Exception:
+                pass
         translation_jobs[session_id]["message"] = "Cancellation requested"
         translation_jobs[session_id]["status"] = "error"
         translation_jobs[session_id]["error"] = "Translation cancelled"
@@ -602,6 +615,149 @@ def _translate_file_process(params: dict, progress_queue) -> None:
             {
                 "type": "error",
                 "message": str(exc) or exc.__class__.__name__,
+            }
+        )
+
+
+def _run_api_translation_job(session_id: str, params: dict) -> None:
+    """Upload to the FastAPI backend, poll for progress, then save results locally.
+
+    Used when PDF2ZH_API_BASE_URL is configured.  Mirrors the same translation_jobs
+    update protocol as the local multiprocessing path so the progress/result pages
+    work without modification.
+    """
+    api_base = API_BASE_URL
+
+    # ── Submit the job ────────────────────────────────────────────────────
+    form_data = {
+        "service": params["service"],
+        "lang_from": params["lang_from"],
+        "lang_to": params["lang_to"],
+        "page_range": params["page_range"],
+        "page_input": params["page_input"],
+        "prompt": params["prompt"],
+        "threads": str(params["threads"]),
+        "skip_subset_fonts": str(params["skip_subset_fonts"]),
+        "ignore_cache": str(params["ignore_cache"]),
+        "vfont": params["vfont"],
+        "mode_choice": params["mode_choice"],
+        "env_0": params["env_0"],
+        "env_1": params["env_1"],
+        "env_2": params["env_2"],
+        "env_3": params["env_3"],
+    }
+
+    try:
+        if params["file_type"] == "File" and params.get("file_input"):
+            src = params["file_input"]
+            with open(src, "rb") as fh:
+                resp = httpx.post(
+                    f"{api_base}/v1/translate",
+                    data=form_data,
+                    files={"file": (os.path.basename(src), fh, "application/pdf")},
+                    timeout=30,
+                )
+        else:
+            form_data["link"] = params.get("link_input", "")
+            resp = httpx.post(f"{api_base}/v1/translate", data=form_data, timeout=30)
+
+        if resp.status_code != 202:
+            raise RuntimeError(f"API returned HTTP {resp.status_code}: {resp.text}")
+
+        api_job_id: str = resp.json()["job_id"]
+        translation_jobs[session_id]["api_job_id"] = api_job_id
+
+    except Exception as exc:
+        translation_jobs[session_id].update(
+            {
+                "status": "error",
+                "progress": 1.0,
+                "message": str(exc),
+                "error": str(exc),
+                "finished_at": time.time(),
+            }
+        )
+        return
+
+    # ── Poll for progress ─────────────────────────────────────────────────
+    while True:
+        time.sleep(0.5)
+        try:
+            status_resp = httpx.get(
+                f"{api_base}/v1/translate/{api_job_id}", timeout=10
+            )
+            data = status_resp.json()
+        except Exception as exc:
+            translation_jobs[session_id].update(
+                {
+                    "status": "error",
+                    "progress": 1.0,
+                    "message": str(exc),
+                    "error": str(exc),
+                    "finished_at": time.time(),
+                }
+            )
+            return
+
+        translation_jobs[session_id].update(
+            {
+                "progress": data.get("progress", 0.0),
+                "message": data.get("message", ""),
+            }
+        )
+
+        status = data.get("status")
+        if status == "done":
+            break
+        if status == "error":
+            translation_jobs[session_id].update(
+                {
+                    "status": "error",
+                    "progress": 1.0,
+                    "message": data.get("error", "API error"),
+                    "error": data.get("error", "API error"),
+                    "finished_at": time.time(),
+                }
+            )
+            return
+
+    # ── Download result files locally so existing /file and /download routes work ──
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    orig_name = os.path.basename(
+        params.get("file_input") or params.get("link_input") or "translated.pdf"
+    )
+    stem = Path(orig_name).stem
+
+    try:
+        paths: dict[str, str] = {}
+        for variant in ("mono", "dual"):
+            dl = httpx.get(
+                f"{api_base}/v1/translate/{api_job_id}/{variant}", timeout=120
+            )
+            dl.raise_for_status()
+            dest = OUTPUT_DIR / f"{stem}-{variant}.pdf"
+            dest.write_bytes(dl.content)
+            paths[variant] = str(dest)
+
+        ui_lang = translation_jobs[session_id].get("ui_lang", "en")
+        translation_jobs[session_id].update(
+            {
+                "status": "done",
+                "progress": 1.0,
+                "message": _t(ui_lang, "translated"),
+                "mono": paths["mono"],
+                "dual": paths["dual"],
+                "finished_at": time.time(),
+            }
+        )
+    except Exception as exc:
+        translation_jobs[session_id].update(
+            {
+                "status": "error",
+                "progress": 1.0,
+                "message": str(exc),
+                "error": str(exc),
+                "finished_at": time.time(),
             }
         )
 
@@ -1920,7 +2076,14 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             except Exception:
                 pass
 
-        threading.Thread(target=run_translation_job, daemon=True).start()
+        if API_BASE_URL:
+            threading.Thread(
+                target=_run_api_translation_job,
+                args=(session_id, params),
+                daemon=True,
+            ).start()
+        else:
+            threading.Thread(target=run_translation_job, daemon=True).start()
         return _progress_page(session_id, ui_lang=ui_lang, autohide=autohide)
 
     @rt("/progress/{session_id}")
