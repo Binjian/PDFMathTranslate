@@ -80,6 +80,13 @@ def _request_api_backend(method: str, url: str, **kwargs) -> httpx.Response:
         return client.request(method, url, **kwargs)
 
 
+def _direct_requests_session() -> requests.Session:
+    """Create a requests session that does not inherit system proxy settings."""
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
 try:
     from babeldoc import __version__ as babeldoc_version
 except Exception:
@@ -369,7 +376,8 @@ def _ollama_model_options(host: str | None, selected: str | None = None) -> list
     host = _normalize_ollama_host(host)
     if host:
         try:
-            response = requests.get(f"{host}/api/tags", timeout=2)
+            with _direct_requests_session() as session:
+                response = session.get(f"{host}/api/tags", timeout=2)
             response.raise_for_status()
             data = response.json()
             for model in data.get("models", []):
@@ -388,29 +396,32 @@ def _ollama_model_options(host: str | None, selected: str | None = None) -> list
 def verify_recaptcha(response):
     recaptcha_url = "https://www.google.com/recaptcha/api/siteverify"
     data = {"secret": server_key, "response": response}
-    result = requests.post(recaptcha_url, data=data).json()
+    with _direct_requests_session() as session:
+        session.trust_env = True
+        result = session.post(recaptcha_url, data=data).json()
     return result.get("success")
 
 
 def download_with_limit(url: str, save_path: Path, size_limit: int | None) -> Path:
     chunk_size = 1024
     total_size = 0
-    with requests.get(url, stream=True, timeout=10) as response:
-        response.raise_for_status()
-        content = response.headers.get("Content-Disposition")
-        try:
-            _, params = cgi.parse_header(content)
-            filename = params["filename"]
-        except Exception:
-            filename = os.path.basename(url)
-        filename = os.path.splitext(os.path.basename(filename))[0] + ".pdf"
-        path = save_path / filename
-        with open(path, "wb") as file:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                total_size += len(chunk)
-                if size_limit and total_size > size_limit:
-                    raise GuiError("Exceeds file size limit")
-                file.write(chunk)
+    with _direct_requests_session() as session:
+        with session.get(url, stream=True, timeout=10) as response:
+            response.raise_for_status()
+            content = response.headers.get("Content-Disposition")
+            try:
+                _, params = cgi.parse_header(content)
+                filename = params["filename"]
+            except Exception:
+                filename = os.path.basename(url)
+            filename = os.path.splitext(os.path.basename(filename))[0] + ".pdf"
+            path = save_path / filename
+            with open(path, "wb") as file:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    total_size += len(chunk)
+                    if size_limit and total_size > size_limit:
+                        raise GuiError("Exceeds file size limit")
+                    file.write(chunk)
     return path
 
 

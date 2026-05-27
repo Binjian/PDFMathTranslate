@@ -1,5 +1,7 @@
 import os
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from pdf2zh import gui_fasthtml
@@ -23,10 +25,58 @@ class _FakeClient:
         return object()
 
 
+class _FakeRequestsResponse:
+    def __init__(self, payload=None):
+        self._payload = payload or {}
+        self.headers = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+    def iter_content(self, chunk_size):
+        yield b"%PDF"
+
+
+class _FakeRequestsSession:
+    calls = []
+
+    def __init__(self):
+        self.trust_env = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def get(self, url, **kwargs):
+        self.calls.append(("GET", url, kwargs, self.trust_env))
+        payload = (
+            {"models": [{"name": "qwen3.6:latest"}]}
+            if url.endswith("/api/tags")
+            else None
+        )
+        return _FakeRequestsResponse(payload)
+
+    def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs, self.trust_env))
+        return _FakeRequestsResponse({"success": True})
+
+
 class TestApiBackendClient(unittest.TestCase):
     def setUp(self):
         _FakeClient.created_with.clear()
         _FakeClient.requests.clear()
+        _FakeRequestsSession.calls.clear()
 
     def test_backend_requests_do_not_use_environment_proxies(self):
         with patch.object(gui_fasthtml.httpx, "Client", _FakeClient):
@@ -39,6 +89,26 @@ class TestApiBackendClient(unittest.TestCase):
         self.assertEqual(
             _FakeClient.requests,
             [("GET", "http://172.27.74.16:7861/health", {"timeout": 5})],
+        )
+
+    def test_requests_calls_do_not_use_environment_proxies(self):
+        with patch.object(gui_fasthtml.requests, "Session", _FakeRequestsSession):
+            self.assertEqual(
+                gui_fasthtml._ollama_model_options("172.27.74.16:11434"),
+                ["qwen3.6:latest"],
+            )
+            with patch.object(gui_fasthtml, "server_key", "secret", create=True):
+                self.assertTrue(gui_fasthtml.verify_recaptcha("token"))
+            with TemporaryDirectory() as temp_dir:
+                output = gui_fasthtml.download_with_limit(
+                    "http://172.27.74.49/document.pdf", Path(temp_dir), None
+                )
+                self.assertEqual(output.read_bytes(), b"%PDF")
+
+        self.assertEqual([call[3] for call in _FakeRequestsSession.calls], [False] * 3)
+        self.assertEqual(
+            [call[0] for call in _FakeRequestsSession.calls],
+            ["GET", "POST", "GET"],
         )
 
     def test_environment_url_overrides_persisted_api_url(self):
