@@ -185,11 +185,26 @@ curl http://127.0.0.1:7861/v1/translate \
 **Local Ollama model (`qwen3.6:latest`):**
 
 ```bash
-curl http://127.0.0.1:7861/v1/translate \
+# English->Chinese, fast model 
+curl http://172.27.74.16:7861/v1/translate \
   -F "file=@paper.pdf" \
   -F "service=Ollama" \
+  -F "mode_choice=fast" \
   -F "lang_from=English" \
   -F "lang_to=Simplified Chinese" \
+  -F "env_0=http://172.27.74.16:11434" \
+  -F "env_1=qwen3.6:latest"
+```
+
+
+```bash
+# Chinese->English, fast model 
+curl http://172.27.74.16:7861/v1/translate \
+  -F "file=@paper.pdf" \
+  -F "service=Ollama" \
+  -F "mode_choice=fast" \
+  -F "lang_from=Simplified Chinese" \
+  -F "lang_to=English" \
   -F "env_0=http://172.27.74.16:11434" \
   -F "env_1=qwen3.6:latest"
 ```
