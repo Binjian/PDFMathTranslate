@@ -975,6 +975,8 @@ def _service_env_fields(
             )
         except (KeyError, TypeError):
             configured_value = env[1]
+        if service == "Ollama":
+            configured_value = os.environ.get(label, configured_value)
         value = env_overrides.get(f"env_{i}", configured_value)
         env_values[label] = value
         input_type = "password" if "API_KEY" in label.upper() else "text"

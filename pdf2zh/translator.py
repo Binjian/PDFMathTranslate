@@ -325,6 +325,7 @@ class OllamaTranslator(BaseTranslator):
         self.client = ollama.Client(
             host=self.envs["OLLAMA_HOST"],
             timeout=self._parse_timeout(self.envs.get("OLLAMA_TIMEOUT")),
+            trust_env=False,
         )
         self.think = self._parse_think(self.envs.get("OLLAMA_THINK"))
         self.prompt_template = prompt

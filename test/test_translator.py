@@ -184,18 +184,24 @@ class TestOllamaTranslator(unittest.TestCase):
                 mock_client.chat()
 
     def test_initialization_supports_timeout_and_think(self):
-        translator = OllamaTranslator(
-            lang_in="en",
-            lang_out="zh",
-            model="qwen3.6:latest",
-            envs={
-                "OLLAMA_HOST": "http://127.0.0.1:11434",
-                "OLLAMA_TIMEOUT": "45",
-                "OLLAMA_THINK": "false",
-            },
+        with mock.patch("pdf2zh.translator.ollama.Client") as client:
+            translator = OllamaTranslator(
+                lang_in="en",
+                lang_out="zh",
+                model="qwen3.6:latest",
+                envs={
+                    "OLLAMA_HOST": "http://172.27.74.49:11434",
+                    "OLLAMA_TIMEOUT": "45",
+                    "OLLAMA_THINK": "false",
+                },
+            )
+        self.assertEqual(
+            45.0, translator._parse_timeout(translator.envs["OLLAMA_TIMEOUT"])
         )
-        self.assertEqual(45.0, translator._parse_timeout(translator.envs["OLLAMA_TIMEOUT"]))
         self.assertFalse(translator.think)
+        client.assert_called_once_with(
+            host="http://172.27.74.49:11434", timeout=45.0, trust_env=False
+        )
 
     def test_do_translate_retries_without_think_when_rejected(self):
         translator = OllamaTranslator(

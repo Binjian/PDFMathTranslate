@@ -159,6 +159,15 @@ class TestApiBackendClient(unittest.TestCase):
         self.assertEqual(envs["OLLAMA_HOST"], "http://172.27.74.49:11434")
         self.assertEqual(envs["OLLAMA_MODEL"], "qwen3.6:latest")
 
+    def test_gui_ollama_fields_use_client_environment_host(self):
+        with (
+            patch.dict(os.environ, {"OLLAMA_HOST": "172.27.74.49:11434"}),
+            patch.object(gui_fasthtml, "_ollama_model_options", return_value=["gemma2"]),
+        ):
+            fields = gui_fasthtml._service_env_fields("Ollama").__html__()
+
+        self.assertIn('value="http://172.27.74.49:11434"', fields)
+
     def test_environment_url_overrides_persisted_api_url(self):
         with (
             patch.dict(
