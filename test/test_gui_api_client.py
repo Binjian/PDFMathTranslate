@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from pdf2zh import gui_fasthtml
+from pdf2zh import api_server, gui_fasthtml
 
 
 class _FakeClient:
@@ -92,7 +92,10 @@ class TestApiBackendClient(unittest.TestCase):
         )
 
     def test_requests_calls_do_not_use_environment_proxies(self):
-        with patch.object(gui_fasthtml.requests, "Session", _FakeRequestsSession):
+        with (
+            patch.object(gui_fasthtml, "API_BASE_URL", ""),
+            patch.object(gui_fasthtml.requests, "Session", _FakeRequestsSession),
+        ):
             self.assertEqual(
                 gui_fasthtml._ollama_model_options("172.27.74.16:11434"),
                 ["qwen3.6:latest"],
@@ -109,6 +112,43 @@ class TestApiBackendClient(unittest.TestCase):
         self.assertEqual(
             [call[0] for call in _FakeRequestsSession.calls],
             ["GET", "POST", "GET"],
+        )
+
+    def test_api_mode_queries_ollama_models_through_backend(self):
+        response = _FakeRequestsResponse({"models": ["qwen3.6:latest"]})
+        with (
+            patch.object(gui_fasthtml, "API_BASE_URL", "http://172.27.74.49:7861"),
+            patch.object(
+                gui_fasthtml, "_request_api_backend", return_value=response
+            ) as request_api,
+            patch.object(
+                gui_fasthtml.requests,
+                "Session",
+                side_effect=AssertionError("Ollama must be reached by the API backend"),
+            ),
+        ):
+            self.assertEqual(
+                gui_fasthtml._ollama_model_options("127.0.0.1:11434"),
+                ["qwen3.6:latest"],
+            )
+
+        request_api.assert_called_once_with(
+            "GET",
+            "http://172.27.74.49:7861/v1/ollama/models",
+            params={"host": "http://127.0.0.1:11434"},
+            timeout=2,
+        )
+
+    def test_api_ollama_models_are_queried_from_backend_without_proxies(self):
+        with patch.object(api_server._requests, "Session", _FakeRequestsSession):
+            self.assertEqual(
+                api_server.ollama_models("172.27.74.49:11434"),
+                {"models": ["qwen3.6:latest"]},
+            )
+
+        self.assertEqual(
+            _FakeRequestsSession.calls,
+            [("GET", "http://172.27.74.49:11434/api/tags", {"timeout": 2}, False)],
         )
 
     def test_environment_url_overrides_persisted_api_url(self):

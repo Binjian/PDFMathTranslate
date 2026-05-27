@@ -135,6 +135,13 @@ def _selected_pages(page_range: str, page_input: str) -> Optional[list[int]]:
     return selected or None
 
 
+def _normalize_ollama_host(host: str) -> str:
+    host = host.strip()
+    if host and "://" not in host:
+        host = f"http://{host}"
+    return host.rstrip("/")
+
+
 # ── Translation subprocess ────────────────────────────────────────────────────
 
 def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> None:
@@ -291,6 +298,29 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/v1/ollama/models")
+def ollama_models(host: str = OllamaTranslator.envs["OLLAMA_HOST"]) -> dict:
+    """List models from Ollama as reachable by the translation backend."""
+    host = _normalize_ollama_host(host)
+    if not host:
+        raise HTTPException(400, "Ollama host must not be empty")
+    try:
+        with _requests.Session() as session:
+            session.trust_env = False
+            response = session.get(f"{host}/api/tags", timeout=2)
+        response.raise_for_status()
+        models = [
+            model["name"]
+            for model in response.json().get("models", [])
+            if isinstance(model, dict) and model.get("name")
+        ]
+    except Exception as exc:
+        raise HTTPException(
+            502, f"Unable to query Ollama models from {host}"
+        ) from exc
+    return {"models": models}
 
 
 @app.post("/v1/translate", status_code=202)

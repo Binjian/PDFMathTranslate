@@ -376,12 +376,20 @@ def _ollama_model_options(host: str | None, selected: str | None = None) -> list
     host = _normalize_ollama_host(host)
     if host:
         try:
-            with _direct_requests_session() as session:
-                response = session.get(f"{host}/api/tags", timeout=2)
+            if API_BASE_URL:
+                response = _request_api_backend(
+                    "GET",
+                    f"{API_BASE_URL}/v1/ollama/models",
+                    params={"host": host},
+                    timeout=2,
+                )
+            else:
+                with _direct_requests_session() as session:
+                    response = session.get(f"{host}/api/tags", timeout=2)
             response.raise_for_status()
             data = response.json()
             for model in data.get("models", []):
-                name = model.get("name") if isinstance(model, dict) else None
+                name = model.get("name") if isinstance(model, dict) else model
                 if name:
                     models.append(name)
         except Exception as exc:
@@ -397,7 +405,6 @@ def verify_recaptcha(response):
     recaptcha_url = "https://www.google.com/recaptcha/api/siteverify"
     data = {"secret": server_key, "response": response}
     with _direct_requests_session() as session:
-        session.trust_env = True
         result = session.post(recaptcha_url, data=data).json()
     return result.get("success")
 
