@@ -211,8 +211,16 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
 
         progress_queue.put({"type": "done", "mono": mono, "dual": dual})
     except BaseException as exc:
+        message = str(exc) or type(exc).__name__
+        if params.get("service_name") == "ollama":
+            envs = params.get("envs") or {}
+            message = (
+                "Ollama translation failed "
+                f"(host={envs.get('OLLAMA_HOST')}, "
+                f"model={envs.get('OLLAMA_MODEL')}): {message}"
+            )
         progress_queue.put(
-            {"type": "error", "message": str(exc) or type(exc).__name__}
+            {"type": "error", "message": message}
         )
 
 

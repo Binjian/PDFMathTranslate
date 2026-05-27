@@ -174,6 +174,7 @@ class TestOllamaTranslator(unittest.TestCase):
                     "temperature": translator.options["temperature"],
                     "num_predict": translator.options["num_predict"],
                 },
+                think=False,
             )
             self.assertEqual("天空呈现蓝色是因为...", translated_result)
 
