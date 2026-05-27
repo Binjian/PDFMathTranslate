@@ -151,6 +151,14 @@ class TestApiBackendClient(unittest.TestCase):
             [("GET", "http://172.27.74.49:11434/api/tags", {"timeout": 2}, False)],
         )
 
+    def test_api_translation_preserves_selected_ollama_host(self):
+        envs = api_server._resolve_translator_envs(
+            "Ollama", ["172.27.74.49:11434", "qwen3.6:latest", "", ""]
+        )
+
+        self.assertEqual(envs["OLLAMA_HOST"], "http://172.27.74.49:11434")
+        self.assertEqual(envs["OLLAMA_MODEL"], "qwen3.6:latest")
+
     def test_environment_url_overrides_persisted_api_url(self):
         with (
             patch.dict(

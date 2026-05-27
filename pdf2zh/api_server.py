@@ -142,6 +142,19 @@ def _normalize_ollama_host(host: str) -> str:
     return host.rstrip("/")
 
 
+def _resolve_translator_envs(service: str, submitted: list[str]) -> dict[str, str | None]:
+    """Resolve request-scoped translator settings for a submitted API job."""
+    translator = SERVICE_MAP[service]
+    envs: dict[str, str | None] = {}
+    for i, (key, default) in enumerate(translator.envs.items()):
+        envs[key] = submitted[i] if i < len(submitted) else default
+    if service == "Ollama":
+        envs["OLLAMA_HOST"] = _normalize_ollama_host(str(envs["OLLAMA_HOST"]))
+    for key, value in envs.items():
+        if key.upper().endswith("API_KEY") and value == "***":
+            envs[key] = ConfigManager.get_env_by_translatername(translator, key, None)
+    return envs
+
 # ── Translation subprocess ────────────────────────────────────────────────────
 
 def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> None:
@@ -377,15 +390,13 @@ async def create_translate_job(
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(400, "Provide a file upload or a link")
 
-    # ── Resolve per-translator env vars ────────────────────────────────────
+    # Resolve request-scoped translator settings before spawning the worker.
     translator = SERVICE_MAP[service]
-    envs_input = [env_0, env_1, env_2, env_3]
-    envs: dict = {}
-    for i, (key, default) in enumerate(translator.envs.items()):
-        envs[key] = envs_input[i] if i < len(envs_input) else default
-    for k, v in envs.items():
-        if str(k).upper().endswith("API_KEY") and str(v) == "***":
-            envs[k] = ConfigManager.get_env_by_translatername(translator, k, None)
+    envs = _resolve_translator_envs(service, [env_0, env_1, env_2, env_3])
+    if service == "Ollama":
+        logger.info(
+            "Submitting Ollama translation using OLLAMA_HOST=%s", envs["OLLAMA_HOST"]
+        )
 
     lang_in = LANG_MAP.get(lang_from, lang_from)
     lang_out = LANG_MAP.get(lang_to, lang_to)
