@@ -3,6 +3,7 @@ set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://172.27.74.16:7861}"
 PDF_FILE="${PDF_FILE:-maxent-2008.pdf}"
+# PDF_FILE="${PDF_FILE:-VAR2404.pdf}"
 SERVICE="${SERVICE:-Ollama}"
 MODE_CHOICE="${MODE_CHOICE:-fast}"
 LANG_FROM="${LANG_FROM:-English}"
