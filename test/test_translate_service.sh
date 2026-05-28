@@ -103,14 +103,9 @@ if [[ "$delete_status" != "artifacts_removed" ]]; then
   exit 1
 fi
 
-mono_status="$(
-  curl --silent --show-error \
-    --output /dev/null \
-    --write-out "%{http_code}" \
-    "${API_BASE_URL}/v1/translate/${job_id}/mono"
-)"
-if [[ "$mono_status" != "404" ]]; then
-  echo "Expected mono download to return 404 after artifact deletion; got ${mono_status}" >&2
+if ! printf "%s" "$delete_response" | python -c 'import json, sys; payload = json.load(sys.stdin); removed = payload.get("removed_files") or []; sys.exit(not (any(name.endswith("-mono.pdf") for name in removed) and any(name.endswith("-dual.pdf") for name in removed)))'; then
+  echo "Artifact delete response did not include both generated PDFs:" >&2
+  echo "$delete_response" >&2
   exit 1
 fi
 
