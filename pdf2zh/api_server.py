@@ -7,12 +7,14 @@ Or via python:
     python -m pdf2zh.api_server
 
 Environment variables:
-    PDF2ZH_API_OUTPUT   Output directory (default: pdf2zh_api_files)
+    PDF2ZH_API_OUTPUT    Output directory (default: pdf2zh_api_files)
+    PDF2ZH_API_JOB_LOG   Job log Markdown table (default: <output>/job_log.md)
     PDF2ZH_API_HOST     Bind host for run_api_server() (default: 0.0.0.0)
     PDF2ZH_API_PORT     Port for run_api_server() (default: 7861)
 """
 from __future__ import annotations
 
+import json
 import logging
 import multiprocessing
 import os
@@ -63,6 +65,9 @@ from pdf2zh.translator import (
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path(ConfigManager.get("PDF2ZH_API_OUTPUT", "pdf2zh_api_files"))
+JOB_LOG = Path(
+    ConfigManager.get("PDF2ZH_API_JOB_LOG", str(OUTPUT_DIR / "job_log.md"))
+)
 
 # ── Translator / language / page lookup tables ────────────────────────────────
 
@@ -115,9 +120,59 @@ PAGE_MAP: dict[str, Optional[list[int]]] = {
 # ── In-memory job store ───────────────────────────────────────────────────────
 
 _jobs: dict[str, dict] = {}
+_job_log_lock = threading.Lock()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _job_log_cell(value) -> str:
+    if value is None:
+        text = ""
+    elif isinstance(value, (dict, list, tuple)):
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    else:
+        text = str(value)
+    return text.replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+
+
+def _job_file_names(job: dict) -> list[str]:
+    files: list[str] = []
+    for key in ("source", "mono", "dual"):
+        path_str = job.get(key)
+        if path_str:
+            name = Path(path_str).name
+            if name not in files:
+                files.append(name)
+    for name in job.get("removed_files") or []:
+        if name not in files:
+            files.append(name)
+    return files
+
+
+def _append_job_log(job_id: str, job: dict, response: dict) -> None:
+    """Append a human-readable Markdown table row for a job event."""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    row = [
+        timestamp,
+        job_id,
+        job.get("service", ""),
+        ", ".join(_job_file_names(job)),
+        response,
+    ]
+    try:
+        with _job_log_lock:
+            JOB_LOG.parent.mkdir(parents=True, exist_ok=True)
+            if not JOB_LOG.exists() or JOB_LOG.stat().st_size == 0:
+                JOB_LOG.write_text(
+                    "| timestamp | job_id | service | files | response |\n"
+                    "|---|---|---|---|---|\n",
+                    encoding="utf-8",
+                )
+            with JOB_LOG.open("a", encoding="utf-8") as handle:
+                handle.write("| " + " | ".join(_job_log_cell(value) for value in row) + " |\n")
+    except Exception:
+        logger.exception("Unable to update API job log at %s", JOB_LOG)
+
 
 def _selected_pages(page_range: str, page_input: str) -> Optional[list[int]]:
     if page_range in PAGE_MAP:
@@ -225,18 +280,21 @@ def _cleanup_job_artifacts(job_id: str, job: dict) -> dict:
             path.unlink()
             removed.append(path.name)
 
+    response = {
+        "job_id": job_id,
+        "status": "artifacts_removed",
+        "removed_files": removed,
+    }
     job.update(
         {
             "mono": None,
             "dual": None,
             "message": "Artifacts removed",
+            "removed_files": removed,
         }
     )
-    return {
-        "job_id": job_id,
-        "status": "artifacts_removed",
-        "removed_files": removed,
-    }
+    _append_job_log(job_id, job, response)
+    return response
 
 # ── Translation subprocess ────────────────────────────────────────────────────
 
@@ -342,6 +400,16 @@ def _monitor_job(
                         "finished_at": time.time(),
                     }
                 )
+                _append_job_log(
+                    job_id,
+                    _jobs[job_id],
+                    {
+                        "status": "done",
+                        "message": "Translation complete",
+                        "mono": Path(event["mono"]).name,
+                        "dual": Path(event["dual"]).name,
+                    },
+                )
                 logger.info("Translation job %s completed", job_id)
                 break
             elif etype == "error":
@@ -354,6 +422,11 @@ def _monitor_job(
                         "error": msg,
                         "finished_at": time.time(),
                     }
+                )
+                _append_job_log(
+                    job_id,
+                    _jobs[job_id],
+                    {"status": "error", "message": msg},
                 )
                 logger.error("Translation job %s failed: %s", job_id, msg)
                 break
@@ -375,6 +448,11 @@ def _monitor_job(
                     "error": msg,
                     "finished_at": time.time(),
                 }
+            )
+            _append_job_log(
+                job_id,
+                _jobs[job_id],
+                {"status": "error", "message": msg, "exit_code": code},
             )
             logger.error("Translation job %s failed: %s", job_id, msg)
             break
@@ -494,6 +572,8 @@ async def create_translate_job(
         "status": "running",
         "progress": 0.0,
         "message": "Starting translation...",
+        "service": service,
+        "source": str(file_path),
         "mono": None,
         "dual": None,
         "error": None,
@@ -558,6 +638,7 @@ def cancel_job(job_id: str) -> dict:
     process = job.get("process")
     if process and process.is_alive():
         process.terminate()
+    response = {"status": "cancelled"}
     job.update(
         {
             "status": "error",
@@ -566,13 +647,14 @@ def cancel_job(job_id: str) -> dict:
             "finished_at": time.time(),
         }
     )
-    return {"status": "cancelled"}
+    _append_job_log(job_id, job, response)
+    return response
 
 
 @app.delete("/v1/translate/{job_id}/artifacts", status_code=200)
 @app.delete("/v1/translate/{job_id}/artefacts", status_code=200)
 def remove_job_artifacts(job_id: str) -> dict:
-    """Remove translated PDF outputs generated for a job."""
+    """Remove PDF files generated or stored for a job."""
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
