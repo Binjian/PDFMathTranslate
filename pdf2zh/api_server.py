@@ -170,6 +170,49 @@ def _format_elapsed_time(seconds: float | None) -> str:
     return f"{seconds}s"
 
 
+def _format_llm_duration_ns(nanoseconds: int | float | None) -> str:
+    try:
+        ns = int(nanoseconds or 0)
+    except (TypeError, ValueError):
+        return ""
+    if ns <= 0:
+        return ""
+    seconds = ns / 1_000_000_000
+    if seconds < 1:
+        return f"{max(1, round(ns / 1_000_000))}ms"
+    return _format_elapsed_time(seconds)
+
+
+def _format_llm_usage(usage: dict | None) -> str:
+    if not usage:
+        return ""
+    parts: list[str] = []
+    requests = int(usage.get("requests") or 0)
+    prompt_count = int(usage.get("prompt_eval_count") or 0)
+    eval_count = int(usage.get("eval_count") or 0)
+    prompt_duration = _format_llm_duration_ns(usage.get("prompt_eval_duration"))
+    eval_duration = _format_llm_duration_ns(usage.get("eval_duration"))
+    total_duration = _format_llm_duration_ns(usage.get("total_duration"))
+    load_duration = _format_llm_duration_ns(usage.get("load_duration"))
+    if requests:
+        parts.append(f"requests: {requests}")
+    if prompt_count or prompt_duration:
+        detail = f"{prompt_count:,} tok" if prompt_count else ""
+        if prompt_duration:
+            detail = f"{detail} in {prompt_duration}" if detail else prompt_duration
+        parts.append(f"prompt: {detail}")
+    if eval_count or eval_duration:
+        detail = f"{eval_count:,} tok" if eval_count else ""
+        if eval_duration:
+            detail = f"{detail} in {eval_duration}" if detail else eval_duration
+        parts.append(f"completion: {detail}")
+    if total_duration:
+        parts.append(f"total: {total_duration}")
+    if load_duration:
+        parts.append(f"load: {load_duration}")
+    return "; ".join(parts)
+
+
 def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     """Append a human-readable Markdown table row for a job event."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -180,13 +223,14 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
         job.get("service", ""),
         ", ".join(_job_file_names(job)),
         _format_elapsed_time(elapsed),
+        _format_llm_usage(job.get("llm_usage")),
         response,
     ]
     try:
         with _job_log_lock:
             JOB_LOG.parent.mkdir(parents=True, exist_ok=True)
-            header = "| timestamp | job_id | service | files | elapsed_time | response |\n"
-            separator = "|---|---|---|---|---:|---|\n"
+            header = "| timestamp | job_id | service | files | elapsed_time | llm_usage | response |\n"
+            separator = "|---|---|---|---|---:|---|---|\n"
             old_tables = (
                 (
                     "| timestamp | job_id | service | files | response |\n",
@@ -194,6 +238,10 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                 ),
                 (
                     "| timestamp | job_id | service | files | elapsed_seconds | response |\n",
+                    "|---|---|---|---|---:|---|\n",
+                ),
+                (
+                    "| timestamp | job_id | service | files | elapsed_time | response |\n",
                     "|---|---|---|---|---:|---|\n",
                 ),
             )
@@ -211,8 +259,12 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                     migrated = [header.rstrip("\n"), separator.rstrip("\n")]
                     for line in content.splitlines()[2:]:
                         parts = line.split(" | ")
-                        if len(parts) == 6:
+                        if len(parts) == 5:
                             parts.insert(4, "")
+                            parts.insert(5, "")
+                            line = " | ".join(parts)
+                        elif len(parts) == 6:
+                            parts.insert(5, "")
                             line = " | ".join(parts)
                         migrated.append(line)
                     JOB_LOG.write_text("\n".join(migrated) + "\n", encoding="utf-8")
@@ -360,6 +412,9 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
         if onnx and ModelInstance.value is None:
             ModelInstance.value = OnnxModel(onnx)
 
+        if params.get("service_name") == "ollama":
+            OllamaTranslator.reset_usage()
+
         KernelRegistry.switch(params["mode_choice"])
         kernel = KernelRegistry.get()
 
@@ -398,12 +453,16 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
         dual = str(out / f"{stem}-dual.pdf")
 
         if not Path(mono).exists() or not Path(dual).exists():
-            progress_queue.put(
-                {"type": "error", "message": "Translation produced no output files"}
-            )
+            error_event = {"type": "error", "message": "Translation produced no output files"}
+            if params.get("service_name") == "ollama":
+                error_event["llm_usage"] = OllamaTranslator.usage_snapshot()
+            progress_queue.put(error_event)
             return
 
-        progress_queue.put({"type": "done", "mono": mono, "dual": dual})
+        done_event = {"type": "done", "mono": mono, "dual": dual}
+        if params.get("service_name") == "ollama":
+            done_event["llm_usage"] = OllamaTranslator.usage_snapshot()
+        progress_queue.put(done_event)
     except BaseException as exc:
         message = str(exc) or type(exc).__name__
         if params.get("service_name") == "ollama":
@@ -413,9 +472,10 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
                 f"(host={envs.get('OLLAMA_HOST')}, "
                 f"model={envs.get('OLLAMA_MODEL')}): {message}"
             )
-        progress_queue.put(
-            {"type": "error", "message": message}
-        )
+        error_event = {"type": "error", "message": message}
+        if params.get("service_name") == "ollama":
+            error_event["llm_usage"] = OllamaTranslator.usage_snapshot()
+        progress_queue.put(error_event)
 
 
 def _monitor_job(
@@ -447,6 +507,7 @@ def _monitor_job(
                         "message": "Translation complete",
                         "mono": event["mono"],
                         "dual": event["dual"],
+                        "llm_usage": event.get("llm_usage"),
                         "finished_at": time.time(),
                     }
                 )
@@ -470,6 +531,7 @@ def _monitor_job(
                         "progress": 1.0,
                         "message": msg,
                         "error": msg,
+                        "llm_usage": event.get("llm_usage"),
                         "finished_at": time.time(),
                     }
                 )
@@ -627,6 +689,7 @@ async def create_translate_job(
         "mono": None,
         "dual": None,
         "error": None,
+        "llm_usage": None,
         "started_at": time.time(),
         "finished_at": None,
     }

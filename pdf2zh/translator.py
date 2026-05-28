@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import threading
 import unicodedata
 from copy import copy
 from string import Template
@@ -295,6 +296,16 @@ class DeepLXTranslator(BaseTranslator):
 class OllamaTranslator(BaseTranslator):
     # https://github.com/ollama/ollama-python
     name = "ollama"
+    _usage_lock = threading.Lock()
+    _usage = {
+        "requests": 0,
+        "prompt_eval_count": 0,
+        "eval_count": 0,
+        "total_duration": 0,
+        "load_duration": 0,
+        "prompt_eval_duration": 0,
+        "eval_duration": 0,
+    }
     envs = {
         "OLLAMA_HOST": "http://127.0.0.1:11434",
         "OLLAMA_MODEL": "gemma2",
@@ -332,6 +343,41 @@ class OllamaTranslator(BaseTranslator):
         self.add_cache_impact_parameters("temperature", self.options["temperature"])
         self.add_cache_impact_parameters("think", self.think)
 
+    @classmethod
+    def reset_usage(cls) -> None:
+        with cls._usage_lock:
+            for key in cls._usage:
+                cls._usage[key] = 0
+
+    @classmethod
+    def usage_snapshot(cls) -> dict[str, int]:
+        with cls._usage_lock:
+            return dict(cls._usage)
+
+    @classmethod
+    def _usage_value(cls, response, key: str) -> int:
+        value = getattr(response, key, None)
+        if value is None and isinstance(response, dict):
+            value = response.get(key)
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def record_usage(cls, response) -> None:
+        with cls._usage_lock:
+            cls._usage["requests"] += 1
+            for key in (
+                "prompt_eval_count",
+                "eval_count",
+                "total_duration",
+                "load_duration",
+                "prompt_eval_duration",
+                "eval_duration",
+            ):
+                cls._usage[key] += cls._usage_value(response, key)
+
     def do_translate(self, text: str) -> str:
         if (max_token := len(text) * 5) > self.options["num_predict"]:
             self.options["num_predict"] = max_token
@@ -351,6 +397,7 @@ class OllamaTranslator(BaseTranslator):
             logger.warning("Ollama server rejected think option; retrying without it.")
             chat_kwargs.pop("think")
             response = self.client.chat(**chat_kwargs)
+        self.record_usage(response)
         content = self._remove_cot_content(response.message.content or "")
         return content.strip()
 
