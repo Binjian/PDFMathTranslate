@@ -170,6 +170,27 @@ def _format_elapsed_time(seconds: float | None) -> str:
     return f"{seconds}s"
 
 
+def _llm_usage_translator(service_name: str):
+    return {
+        "ollama": OllamaTranslator,
+        "openailiked": OpenAIlikedTranslator,
+        "qwen-mt": QwenMtTranslator,
+    }.get(service_name)
+
+
+def _reset_llm_usage(service_name: str) -> None:
+    translator = _llm_usage_translator(service_name)
+    if translator is not None:
+        translator.reset_usage()
+
+
+def _llm_usage_snapshot(service_name: str) -> dict | None:
+    translator = _llm_usage_translator(service_name)
+    if translator is None:
+        return None
+    return translator.usage_snapshot()
+
+
 def _format_llm_duration_ns(nanoseconds: int | float | None) -> str:
     try:
         ns = int(nanoseconds or 0)
@@ -188,11 +209,17 @@ def _format_llm_usage(usage: dict | None) -> str:
         return ""
     parts: list[str] = []
     requests = int(usage.get("requests") or 0)
-    prompt_count = int(usage.get("prompt_eval_count") or 0)
-    eval_count = int(usage.get("eval_count") or 0)
+    prompt_count = int(
+        usage.get("prompt_eval_count") or usage.get("prompt_tokens") or 0
+    )
+    eval_count = int(
+        usage.get("eval_count") or usage.get("completion_tokens") or 0
+    )
+    total_count = int(usage.get("total_tokens") or 0)
     prompt_duration = _format_llm_duration_ns(usage.get("prompt_eval_duration"))
     eval_duration = _format_llm_duration_ns(usage.get("eval_duration"))
     total_duration = _format_llm_duration_ns(usage.get("total_duration"))
+    request_duration = _format_elapsed_time(usage.get("request_duration"))
     load_duration = _format_llm_duration_ns(usage.get("load_duration"))
     if requests:
         parts.append(f"requests: {requests}")
@@ -206,8 +233,12 @@ def _format_llm_usage(usage: dict | None) -> str:
         if eval_duration:
             detail = f"{detail} in {eval_duration}" if detail else eval_duration
         parts.append(f"completion: {detail}")
+    if total_count:
+        parts.append(f"tokens: {total_count:,}")
     if total_duration:
         parts.append(f"total: {total_duration}")
+    elif request_duration:
+        parts.append(f"api time: {request_duration}")
     if load_duration:
         parts.append(f"load: {load_duration}")
     return "; ".join(parts)
@@ -412,8 +443,7 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
         if onnx and ModelInstance.value is None:
             ModelInstance.value = OnnxModel(onnx)
 
-        if params.get("service_name") == "ollama":
-            OllamaTranslator.reset_usage()
+        _reset_llm_usage(params.get("service_name", ""))
 
         KernelRegistry.switch(params["mode_choice"])
         kernel = KernelRegistry.get()
@@ -454,14 +484,16 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
 
         if not Path(mono).exists() or not Path(dual).exists():
             error_event = {"type": "error", "message": "Translation produced no output files"}
-            if params.get("service_name") == "ollama":
-                error_event["llm_usage"] = OllamaTranslator.usage_snapshot()
+            llm_usage = _llm_usage_snapshot(params.get("service_name", ""))
+            if llm_usage is not None:
+                error_event["llm_usage"] = llm_usage
             progress_queue.put(error_event)
             return
 
         done_event = {"type": "done", "mono": mono, "dual": dual}
-        if params.get("service_name") == "ollama":
-            done_event["llm_usage"] = OllamaTranslator.usage_snapshot()
+        llm_usage = _llm_usage_snapshot(params.get("service_name", ""))
+        if llm_usage is not None:
+            done_event["llm_usage"] = llm_usage
         progress_queue.put(done_event)
     except BaseException as exc:
         message = str(exc) or type(exc).__name__
@@ -473,8 +505,9 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
                 f"model={envs.get('OLLAMA_MODEL')}): {message}"
             )
         error_event = {"type": "error", "message": message}
-        if params.get("service_name") == "ollama":
-            error_event["llm_usage"] = OllamaTranslator.usage_snapshot()
+        llm_usage = _llm_usage_snapshot(params.get("service_name", ""))
+        if llm_usage is not None:
+            error_event["llm_usage"] = llm_usage
         progress_queue.put(error_event)
 
 

@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import time
 import unicodedata
 from copy import copy
 from string import Template
@@ -544,6 +545,57 @@ class OpenAITranslator(BaseTranslator):
         stream_val = self.envs.get("OPENAI_STREAM", "true").lower()
         self.stream = stream_val == "true"
 
+
+    @classmethod
+    def reset_usage(cls) -> None:
+        cls._usage_lock = threading.Lock()
+        cls._usage = {
+            "requests": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "request_duration": 0.0,
+        }
+
+    @classmethod
+    def usage_snapshot(cls) -> dict[str, int | float]:
+        if "_usage" not in cls.__dict__:
+            cls.reset_usage()
+        with cls._usage_lock:
+            return dict(cls._usage)
+
+    @staticmethod
+    def _usage_attr(usage, *keys: str) -> int:
+        for key in keys:
+            value = getattr(usage, key, None)
+            if value is None and isinstance(usage, dict):
+                value = usage.get(key)
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                continue
+        return 0
+
+    @classmethod
+    def record_usage(cls, response, duration: float) -> None:
+        if "_usage" not in cls.__dict__:
+            cls.reset_usage()
+        usage = getattr(response, "usage", None)
+        if usage is None and isinstance(response, dict):
+            usage = response.get("usage")
+        with cls._usage_lock:
+            cls._usage["requests"] += 1
+            cls._usage["request_duration"] += max(0.0, duration)
+            if usage is None:
+                return
+            cls._usage["prompt_tokens"] += cls._usage_attr(
+                usage, "prompt_tokens", "input_tokens"
+            )
+            cls._usage["completion_tokens"] += cls._usage_attr(
+                usage, "completion_tokens", "output_tokens"
+            )
+            cls._usage["total_tokens"] += cls._usage_attr(usage, "total_tokens")
+
     @retry(
         retry=retry_if_exception_type(openai.RateLimitError),
         stop=stop_after_attempt(100),
@@ -554,6 +606,7 @@ class OpenAITranslator(BaseTranslator):
         ),
     )
     def do_translate(self, text) -> str:
+        started_at = time.perf_counter()
         response = self.client.chat.completions.create(
             model=self.model,
             **self.options,
@@ -565,8 +618,10 @@ class OpenAITranslator(BaseTranslator):
             for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
                     collected.append(chunk.choices[0].delta.content)
+            self.record_usage(None, time.perf_counter() - started_at)
             content = "".join(collected).strip()
         else:
+            self.record_usage(response, time.perf_counter() - started_at)
             if not response.choices:
                 if hasattr(response, "error"):
                     raise ValueError("Error response from Service", response.error)
@@ -1185,17 +1240,21 @@ class OpenAIlikedTranslator(OpenAITranslator):
 
     def do_translate(self, text) -> str:
         """Override to support configurable streaming."""
+        started_at = time.perf_counter()
         response = self.client.chat.completions.create(
             model=self.model,
             **self.options,
             messages=self.prompt(text, self.prompttext),
             stream=self.stream,
         )
+        if not self.stream:
+            self.record_usage(response, time.perf_counter() - started_at)
         if self.stream:
             collected = []
             for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
                     collected.append(chunk.choices[0].delta.content)
+            self.record_usage(None, time.perf_counter() - started_at)
             content = "".join(collected).strip()
         else:
             if not response.choices:
@@ -1273,10 +1332,12 @@ class QwenMtTranslator(OpenAITranslator):
             "target_lang": self.lang_mapping(self.lang_out),
             "domains": self.envs["ALI_DOMAINS"],
         }
+        started_at = time.perf_counter()
         response = self.client.chat.completions.create(
             model=self.model,
             **self.options,
             messages=[{"role": "user", "content": text}],
             extra_body={"translation_options": translation_options},
         )
+        self.record_usage(response, time.perf_counter() - started_at)
         return response.choices[0].message.content.strip()

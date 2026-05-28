@@ -140,7 +140,7 @@ the translated PDF when the job is complete.
 | Variable | Default | Description |
 |---|---|---|
 | `PDF2ZH_API_OUTPUT` | `pdf2zh_api_files` | Directory where translated PDFs are stored by the API server |
-| `PDF2ZH_API_JOB_LOG` | `<PDF2ZH_API_OUTPUT>/job_log.md` | Markdown table recording job files, elapsed time, Ollama LLM usage, and completed, failed, cancelled, or cleanup responses |
+| `PDF2ZH_API_JOB_LOG` | `<PDF2ZH_API_OUTPUT>/job_log.md` | Markdown table recording job files, elapsed time, LLM usage for Ollama, OpenAI-liked, and Ali Qwen-Translation, and completed, failed, cancelled, or cleanup responses |
 | `PDF2ZH_API_HOST` | `0.0.0.0` | Bind address used by `run_api_server()` |
 | `PDF2ZH_API_PORT` | `7861` | Port used by `run_api_server()` |
 | `PDF2ZH_API_BASE_URL` | _(empty)_ | **GUI only** — URL of the FastAPI backend. When set, the FastHTML GUI delegates all translation to that server. Example: `http://127.0.0.1:7861` |
