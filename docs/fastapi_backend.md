@@ -184,52 +184,7 @@ curl http://127.0.0.1:7861/v1/translate \
 
 **Local Ollama model (`qwen3.6:latest`):**
 
-```bash
-# English->Chinese, fast model 
-curl http://172.27.74.16:7861/v1/translate \
-  -F "file=@paper.pdf" \
-  -F "service=Ollama" \
-  -F "mode_choice=fast" \
-  -F "lang_from=English" \
-  -F "lang_to=Simplified Chinese" \
-  -F "env_0=http://172.27.74.16:11434" \
-  -F "env_1=qwen3.6:latest"
-```
-
-
-```bash
-# Chinese->English, fast model 
-curl http://172.27.74.16:7861/v1/translate \
-  -F "file=@paper.pdf" \
-  -F "service=Ollama" \
-  -F "mode_choice=fast" \
-  -F "lang_from=Simplified Chinese" \
-  -F "lang_to=English" \
-  -F "env_0=http://172.27.74.16:11434" \
-  -F "env_1=qwen3.6:latest"
-```
-**That works if paper.pdf is in your current working directory. If it is elsewhere, use a relative or absolute path, for example -F "file=@./docs/paper.pdf" or -F "file=@/full/path/paper.pdf".**
-
-For `Ollama`, `env_0` sets the local Ollama host and `env_1` selects the
-installed model. Service names are case-sensitive; use `Ollama` rather than
-`ollama`.
-
-**URL download:**
-
-```bash
-curl http://127.0.0.1:7861/v1/translate \
-  -F "link=https://arxiv.org/pdf/2406.00978" \
-  -F "service=OpenAI" \
-  -F "lang_from=English" \
-  -F "lang_to=German" \
-  -F "env_0=sk-..."
-```
-
-**Response:**
-
-```json
-{"job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a"}
-```
+Please refer to the test script in [test/test_translate_service.sh](../test/test_translate_service.sh).
 
 **Form parameters:**
 
