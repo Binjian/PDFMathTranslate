@@ -149,25 +149,75 @@ def _job_file_names(job: dict) -> list[str]:
     return files
 
 
+def _job_elapsed_seconds(job: dict) -> float | None:
+    started_at = job.get("started_at")
+    if started_at is None:
+        return None
+    finished_at = job.get("finished_at") or time.time()
+    return max(0.0, finished_at - started_at)
+
+
+def _format_elapsed_time(seconds: float | None) -> str:
+    if seconds is None:
+        return ""
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
+
 def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     """Append a human-readable Markdown table row for a job event."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    elapsed = _job_elapsed_seconds(job)
     row = [
         timestamp,
         job_id,
         job.get("service", ""),
         ", ".join(_job_file_names(job)),
+        _format_elapsed_time(elapsed),
         response,
     ]
     try:
         with _job_log_lock:
             JOB_LOG.parent.mkdir(parents=True, exist_ok=True)
-            if not JOB_LOG.exists() or JOB_LOG.stat().st_size == 0:
-                JOB_LOG.write_text(
-                    "| timestamp | job_id | service | files | response |\n"
+            header = "| timestamp | job_id | service | files | elapsed_time | response |\n"
+            separator = "|---|---|---|---|---:|---|\n"
+            old_tables = (
+                (
+                    "| timestamp | job_id | service | files | response |\n",
                     "|---|---|---|---|---|\n",
-                    encoding="utf-8",
+                ),
+                (
+                    "| timestamp | job_id | service | files | elapsed_seconds | response |\n",
+                    "|---|---|---|---|---:|---|\n",
+                ),
+            )
+            if JOB_LOG.exists() and JOB_LOG.stat().st_size > 0:
+                content = JOB_LOG.read_text(encoding="utf-8")
+                matched_old_table = next(
+                    (
+                        old_header + old_separator
+                        for old_header, old_separator in old_tables
+                        if content.startswith(old_header + old_separator)
+                    ),
+                    None,
                 )
+                if matched_old_table:
+                    migrated = [header.rstrip("\n"), separator.rstrip("\n")]
+                    for line in content.splitlines()[2:]:
+                        parts = line.split(" | ")
+                        if len(parts) == 6:
+                            parts.insert(4, "")
+                            line = " | ".join(parts)
+                        migrated.append(line)
+                    JOB_LOG.write_text("\n".join(migrated) + "\n", encoding="utf-8")
+            if not JOB_LOG.exists() or JOB_LOG.stat().st_size == 0:
+                JOB_LOG.write_text(header + separator, encoding="utf-8")
             with JOB_LOG.open("a", encoding="utf-8") as handle:
                 handle.write("| " + " | ".join(_job_log_cell(value) for value in row) + " |\n")
     except Exception:
