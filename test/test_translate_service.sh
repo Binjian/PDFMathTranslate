@@ -88,3 +88,30 @@ curl --fail --silent --show-error \
 
 echo "Done:"
 ls -lh "$mono_path" "$dual_path"
+
+echo "Deleting remote artifacts for job ${job_id}"
+delete_response="$(
+  curl --fail --silent --show-error \
+    -X DELETE \
+    "${API_BASE_URL}/v1/translate/${job_id}/artifacts"
+)"
+
+delete_status="$(printf "%s" "$delete_response" | json_get status)"
+if [[ "$delete_status" != "artifacts_removed" ]]; then
+  echo "Artifact delete response did not report artifacts_removed:" >&2
+  echo "$delete_response" >&2
+  exit 1
+fi
+
+mono_status="$(
+  curl --silent --show-error \
+    --output /dev/null \
+    --write-out "%{http_code}" \
+    "${API_BASE_URL}/v1/translate/${job_id}/mono"
+)"
+if [[ "$mono_status" != "404" ]]; then
+  echo "Expected mono download to return 404 after artifact deletion; got ${mono_status}" >&2
+  exit 1
+fi
+
+echo "Remote artifacts deleted"

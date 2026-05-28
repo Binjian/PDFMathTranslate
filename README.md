@@ -12,6 +12,7 @@
   - [Submit a translation job](#submit)
   - [Poll job status](#status)
   - [Cancel a job](#cancel)
+  - [Remove generated artifacts](#artifacts)
   - [Download results](#download)
 - [Using the FastHTML GUI as a client](#gui-client)
 - [Running both together](#together)
@@ -281,6 +282,25 @@ curl -X DELETE \
 
 ```json
 {"status": "cancelled"}
+```
+
+---
+
+<h3 id="artifacts">DELETE /v1/translate/{job_id}/artifacts</h3>
+
+Remove the translated PDF artifacts generated for a job. The source PDF upload is left in place. The alias `/v1/translate/{job_id}/artefacts` is also supported. Returns `409` if the job is still running.
+
+```bash
+curl -X DELETE \
+  http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/artifacts
+```
+
+```json
+{
+  "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
+  "status": "artifacts_removed",
+  "removed_files": ["paper-mono.pdf", "paper-dual.pdf"]
+}
 ```
 
 ---

@@ -197,6 +197,48 @@ def _validate_ollama_envs(envs: dict[str, str | None]) -> None:
             f"Available models: {available}",
         )
 
+
+def _cleanup_job_artifacts(job_id: str, job: dict) -> dict:
+    """Remove translated PDF outputs for a completed job."""
+    if job.get("status") == "running":
+        raise HTTPException(409, "Cannot remove artifacts while job is running")
+
+    job_dir = (OUTPUT_DIR / job_id).resolve()
+    output_root = OUTPUT_DIR.resolve()
+    if output_root not in (job_dir, *job_dir.parents):
+        raise HTTPException(400, "Invalid job output directory")
+
+    candidates: set[Path] = set()
+    for variant in ("mono", "dual"):
+        path_str = job.get(variant)
+        if path_str:
+            candidates.add(Path(path_str))
+    if job_dir.exists():
+        candidates.update(job_dir.glob("*-mono.pdf"))
+        candidates.update(job_dir.glob("*-dual.pdf"))
+
+    removed: list[str] = []
+    for path in sorted(candidates):
+        path = path.resolve()
+        if output_root not in (path, *path.parents):
+            continue
+        if path.is_file():
+            path.unlink()
+            removed.append(path.name)
+
+    job.update(
+        {
+            "mono": None,
+            "dual": None,
+            "message": "Artifacts removed",
+        }
+    )
+    return {
+        "job_id": job_id,
+        "status": "artifacts_removed",
+        "removed_files": removed,
+    }
+
 # ── Translation subprocess ────────────────────────────────────────────────────
 
 def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> None:
@@ -526,6 +568,16 @@ def cancel_job(job_id: str) -> dict:
         }
     )
     return {"status": "cancelled"}
+
+
+@app.delete("/v1/translate/{job_id}/artifacts", status_code=200)
+@app.delete("/v1/translate/{job_id}/artefacts", status_code=200)
+def remove_job_artifacts(job_id: str) -> dict:
+    """Remove translated PDF outputs generated for a job."""
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return _cleanup_job_artifacts(job_id, job)
 
 
 @app.get("/v1/translate/{job_id}/{variant}")
