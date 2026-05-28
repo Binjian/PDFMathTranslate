@@ -247,9 +247,15 @@ def translate_stream(
         doc_zh.subset_fonts(fallback=True)
         doc_en.subset_fonts(fallback=True)
     return (
-        doc_zh.write(deflate=True, garbage=3, use_objstms=1),
-        doc_en.write(deflate=True, garbage=3, use_objstms=1),
+        _write_pdf(doc_zh),
+        _write_pdf(doc_en),
     )
+
+
+def _write_pdf(doc: Document) -> bytes:
+    # Avoid garbage collection here: damaged source PDFs can contain stale xref
+    # references that MuPDF reports while compacting, even when output succeeds.
+    return doc.write(deflate=True)
 
 
 def convert_to_pdfa(input_path, output_path):
