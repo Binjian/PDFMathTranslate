@@ -29,7 +29,7 @@ from typing import Annotated, Optional
 
 import requests as _requests
 import tqdm
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -124,6 +124,16 @@ _job_log_lock = threading.Lock()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+    return request.client.host if request.client else ""
+
 
 def _job_log_cell(value) -> str:
     if value is None:
@@ -253,6 +263,7 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     row = [
         timestamp,
         job_id,
+        job.get("client_ip", ""),
         job.get("service", ""),
         ", ".join(_job_file_names(job)),
         _format_elapsed_time(elapsed),
@@ -262,8 +273,8 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     try:
         with _job_log_lock:
             JOB_LOG.parent.mkdir(parents=True, exist_ok=True)
-            header = "| timestamp | job_id | service | files | elapsed_time | llm_usage | response |\n"
-            separator = "|---|---|---|---|---:|---|---|\n"
+            header = "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_usage | response |\n"
+            separator = "|---|---|---|---|---|---:|---|---|\n"
             old_tables = (
                 (
                     "| timestamp | job_id | service | files | response |\n",
@@ -276,6 +287,10 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                 (
                     "| timestamp | job_id | service | files | elapsed_time | response |\n",
                     "|---|---|---|---|---:|---|\n",
+                ),
+                (
+                    "| timestamp | job_id | service | files | elapsed_time | llm_usage | response |\n",
+                    "|---|---|---|---|---:|---|---|\n",
                 ),
             )
             if JOB_LOG.exists() and JOB_LOG.stat().st_size > 0:
@@ -293,11 +308,16 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                     for line in content.splitlines()[2:]:
                         parts = line.split(" | ")
                         if len(parts) == 5:
-                            parts.insert(4, "")
+                            parts.insert(2, "")
                             parts.insert(5, "")
+                            parts.insert(6, "")
                             line = " | ".join(parts)
                         elif len(parts) == 6:
-                            parts.insert(5, "")
+                            parts.insert(2, "")
+                            parts.insert(6, "")
+                            line = " | ".join(parts)
+                        elif len(parts) == 7:
+                            parts.insert(2, "")
                             line = " | ".join(parts)
                         migrated.append(line)
                     JOB_LOG.write_text("\n".join(migrated) + "\n", encoding="utf-8")
@@ -651,6 +671,7 @@ def ollama_models(host: str = OllamaTranslator.envs["OLLAMA_HOST"]) -> dict:
 
 @app.post("/v1/translate", status_code=202)
 async def create_translate_job(
+    request: Request,
     file: Optional[UploadFile] = File(None),
     link: Annotated[str, Form()] = "",
     service: Annotated[str, Form()] = "Google",
@@ -720,6 +741,7 @@ async def create_translate_job(
         "progress": 0.0,
         "message": "Starting translation...",
         "service": service,
+        "client_ip": _client_ip(request),
         "source": str(file_path),
         "mono": None,
         "dual": None,
