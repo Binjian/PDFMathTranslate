@@ -239,6 +239,9 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
             vfont=params["vfont"],
         )
         kernel.translate(request, callback=_cb)
+        progress_queue.put(
+            {"type": "progress", "progress": 0.99, "message": "Collecting output files..."}
+        )
 
         stem = Path(params["file_path"]).stem
         out = Path(params["output_dir"])
@@ -298,6 +301,7 @@ def _monitor_job(
                         "finished_at": time.time(),
                     }
                 )
+                logger.info("Translation job %s completed", job_id)
                 break
             elif etype == "error":
                 msg = event.get("message", "Unknown error")
@@ -310,6 +314,7 @@ def _monitor_job(
                         "finished_at": time.time(),
                     }
                 )
+                logger.error("Translation job %s failed: %s", job_id, msg)
                 break
 
         if not process.is_alive():
@@ -330,6 +335,7 @@ def _monitor_job(
                     "finished_at": time.time(),
                 }
             )
+            logger.error("Translation job %s failed: %s", job_id, msg)
             break
 
     process.join(timeout=1)
