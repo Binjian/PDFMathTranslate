@@ -1,366 +1,551 @@
-<div align="center">
-	<a href="https://go.warp.dev/PDFMathTranslate" target="_blank">
-		<sup>Special thanks to:</sup>
-		<br>
-		<img alt="Warp sponsorship" width="400" src="https://github.com/warpdotdev/brand-assets/blob/main/Github/Sponsor/Warp-Github-LG-02.png">
-		<br>
-		<h>Warp, built for coding with multiple AI agents</b>
-		<br>
-		<sup>Available for macOS, Linux and Windows</sup>
-	</a>
-</div>
-
-<br>
-
-<div align="center">
-
-English | [简体中文](docs/README_zh-CN.md) | [繁體中文](docs/README_zh-TW.md) | [日本語](docs/README_ja-JP.md) | [한국어](docs/README_ko-KR.md)
-
-<img src="./docs/images/banner.png" width="320px"  alt="PDF2ZH"/>
-
-<h2 id="title">PDFMathTranslate</h2>
-
-<p>
-  <!-- PyPI -->
-  <a href="https://pypi.org/project/pdf2zh/">
-    <img src="https://img.shields.io/pypi/v/pdf2zh"></a>
-  <a href="https://pepy.tech/projects/pdf2zh">
-    <img src="https://static.pepy.tech/badge/pdf2zh"></a>
-  <a href="https://hub.docker.com/r/byaidu/pdf2zh">
-    <img src="https://img.shields.io/docker/pulls/byaidu/pdf2zh"></a>
-  <a href="https://hellogithub.com/repository/8ec2cfd3ef744762bf531232fa32bc47" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=8ec2cfd3ef744762bf531232fa32bc47&claim_uid=JQ0yfeBNjaTuqDU&theme=small" alt="Featured｜HelloGitHub" /></a>
-  <a href="https://gitcode.com/Byaidu/PDFMathTranslate/overview">
-    <img src="https://gitcode.com/Byaidu/PDFMathTranslate/star/badge.svg"></a>
-  <a href="https://huggingface.co/spaces/reycn/PDFMathTranslate-Docker">
-    <img src="https://img.shields.io/badge/%F0%9F%A4%97-Online%20Demo-FF9E0D"></a>
-  <a href="https://www.modelscope.cn/studios/AI-ModelScope/PDFMathTranslate">
-    <img src="https://img.shields.io/badge/ModelScope-Demo-blue"></a>
-  <a href="https://github.com/Byaidu/PDFMathTranslate/pulls">
-    <img src="https://img.shields.io/badge/contributions-welcome-green"></a>
-  <a href="https://t.me/+Z9_SgnxmsmA5NzBl">
-    <img src="https://img.shields.io/badge/Telegram-2CA5E0?style=flat-squeare&logo=telegram&logoColor=white"></a>
-  <!-- License -->
-  <a href="./LICENSE">
-    <img src="https://img.shields.io/github/license/Byaidu/PDFMathTranslate"></a>
-</p>
-
-<a href="https://trendshift.io/repositories/19816" target="_blank"><img src="https://trendshift.io/api/badge/repositories/19816" alt="PDFMathTranslate%2FPDFMathTranslate | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-</div>
-
-<h2 id="updates">1. What does this do?</h2>
-
-Scientific PDF document translation preserving layouts.
-
-- 📊 Preserve formulas, charts, table of contents, and annotations.
-- 🌐 Support [multiple languages](#usage), and diverse [translation services](#usage).
-- 🤖 Provides [commandline tool](#usage), [interactive user interface](#install), and [Docker](#install)
-
-<div align="center">
-<img src="./docs/images/preview.gif" width="80%"/>
-</div>
-
-<h2 id="updates">2. Recent Updates</h2>
-
-- [March 23, 2026] Experimental support for v2.0 translation kernel using isolated environment (`--mode precise`). (by [@reycn](https://github.com/reycn))
-- [March 22, 2026] Supporting MiniMax (PR by [@octo-patch](https://github.com/octo-patch))
-- [March 22, 2026] Fixing OpenAI-related issues (PR by [@samqin123](https://github.com/samqin123))
-- [March 22, 2026] Fixing HTTP-related issues (PR by [@soukouki](https://github.com/soukouki))
-- [March 22, 2026] Faster model loading on mac and OONX platforms, GUI starting-up, version printing, and continuous integration.(by [@reycn](https://github.com/reycn))
-- [May 9, 2025] pdf2zh 2.0 Preview Version [#586](https://github.com/Byaidu/PDFMathTranslate/issues/586): The Windows ZIP file and Docker image are now available.
-
-  > [!NOTE]
-  >
-  > 2.0 Moved to a new repository under the organization: [PDFMathTranslate/PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next)
-  > 
-  > Version 2.0 official release has been published.
-
-<h2 id="use-section">3. Use 🌟</h2>
-<h3 id="demo">3.1 Online Service 🌟</h3>
-
-You can try our application out using either of the following demos:
-
-- [Public free service](https://pdf2zh.com/) online without installation _(recommended)_.
-- [Immersive Translate - BabelDOC](https://app.immersivetranslate.com/babel-doc/) Free usage quota is available; please refer to the FAQ section on the page for details. _(recommended)_
-- [Demo hosted on HuggingFace](https://huggingface.co/spaces/reycn/PDFMathTranslate-Docker)
-- [Demo hosted on ModelScope](https://www.modelscope.cn/studios/AI-ModelScope/PDFMathTranslate) without installation.
-
-Note that the computing resources of the demo are limited, so please avoid abusing them.
-
-<h3 id="install">3.2 Local Installation</h3>
-
-For different use cases, we provide distinct methods to use our program:
-
-<details open>
-  <summary>3.2.1 Python: Install using uv</summary>
-
-1. Python installed (3.11 <= version <= 3.12)
-
-2. Install our package:
-
-   ```bash
-   pip install uv
-   uv tool install --python 3.12 pdf2zh
-   ```
-
-3. Execute translation, files generated in [current working directory](https://chatgpt.com/share/6745ed36-9acc-800e-8a90-59204bd13444):
-
-   ```bash
-   pdf2zh document.pdf
-   ```
-
-</details>
-<details>
-  <summary>3.2.2 Python: Install using pip</summary>
-
-1. Python installed (3.11 <= version <= 3.12)
-2. Install our package:
-
-   ```bash
-   pip install pdf2zh
-   ```
-
-3. Execute translation, files generated in [current working directory](https://chatgpt.com/share/6745ed36-9acc-800e-8a90-59204bd13444):
-
-   ```bash
-   pdf2zh document.pdf
-   ```
-
-</details>
-<details>
-  <summary>3.3.3 Python: Graphic user interface</summary>
-
-1. Python installed (3.11 <= version <= 3.12)
-
-2. Install our package:
-
-  ```bash
-  pip install pdf2zh
-  ```
-
-3. Start using in browser:
-
-   ```bash
-   pdf2zh -i
-   ```
-
-4. If your browser has not been started automatically, goto
-
-   ```bash
-   http://localhost:7860/
-   ```
-
-   <img src="./docs/images/gui.gif" width="500"/>
-
-See [documentation for GUI](./docs/README_GUI.md) for more details.
-
-</details>
-
-<details>
-  <summary>3.2.4 Application: On Windows</summary>
-
-1. Download pdf2zh-version-win64.zip from [release page](https://github.com/Byaidu/PDFMathTranslate/releases)
-
-2. Unzip and double-click `pdf2zh.exe` to run.
-
-
-  > [!TIP]
-  >
-  > - If you're using Windows and cannot open the file after downloading, please install [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) and try again.
-  > 
-</details>
-
-
-<details>
-
-<summary>3.2.5 Reference manager: Zotero Plugin</summary>
-
-
-See [Zotero PDF2zh](https://github.com/guaguastandup/zotero-pdf2zh) for more details.
-
-</details>
-
-
-<details>
-  <summary>3.2.6 Docker: Containerized Deployment</summary>
-
-1. Pull and run:
-
-   ```bash
-   docker pull byaidu/pdf2zh
-   docker run -d -p 7860:7860 byaidu/pdf2zh
-   ```
-
-2. Open in browser:
-
-   ```
-   http://localhost:7860/
-   ```
-
-For docker deployment on cloud service:
-
-<div>
-<a href="https://www.heroku.com/deploy?template=https://github.com/Byaidu/PDFMathTranslate">
-  <img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy" height="26"></a>
-<a href="https://render.com/deploy">
-  <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Koyeb" height="26"></a>
-<a href="https://zeabur.com/templates/5FQIGX?referralCode=reycn">
-  <img src="https://zeabur.com/button.svg" alt="Deploy on Zeabur" height="26"></a>
-<a href="https://template.sealos.io/deploy?templateName=pdf2zh">
-  <img src="https://sealos.io/Deploy-on-Sealos.svg" alt="Deploy on Sealos" height="26"></a>
-<a href="https://app.koyeb.com/deploy?type=git&builder=buildpack&repository=github.com/Byaidu/PDFMathTranslate&branch=main&name=pdf-math-translate">
-  <img src="https://www.koyeb.com/static/images/deploy/button.svg" alt="Deploy to Koyeb" height="26"></a>
-</div>
-
-> [!TIP]
->
-> - If you cannot access Docker Hub, please try the image on [GitHub Container Registry](https://github.com/Byaidu/PDFMathTranslate/pkgs/container/pdfmathtranslate).
-> ```bash
-> docker pull ghcr.io/byaidu/pdfmathtranslate
-> docker run -d -p 7860:7860 ghcr.io/byaidu/pdfmathtranslate
-> ```
-</details>
-
-<details>
-  <summary>3.2.* Solutions for network issues in installation</summary>
-
-  Users in specific regions may encounter network difficulties when loading the AI model. The current program relies on the AI model (`wybxc/DocLayout-YOLO-DocStructBench-onnx`), and some users are unable to download it due to these network issues.
-
-  To address issues with downloading this model, use the following environment variable as a workaround:
-
-  ```shell
-  set HF_ENDPOINT=https://hf-mirror.com
-  ```
-
-  For PowerShell user:
-
-  ```shell
-  $env:HF_ENDPOINT = https://hf-mirror.com
-  ```
-
-  If the solution does not work to you / you encountered other issues, please refer to [Frequently Asked Questions](https://github.com/Byaidu/PDFMathTranslate/wiki#-faq--%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98).
-</details>
-
-
-<h2 id="usage">4. Technical Details</h2>
-
-### 4.1 Advanced options
-
-Execute the translation command in the command line to generate the translated document `example-mono.pdf` and the bilingual document `example-dual.pdf` in the current working directory. Use Google as the default translation service. More support translation services can find [HERE](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#services).
-
-<img src="./docs/images/cmd.explained.png" width="580px"  alt="cmd"/>
-
-In the following table, we list all advanced options for reference:
-
-| Option                | Function                                                                                                      | Example                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| files                 | Local files                                                                                                   | `pdf2zh ~/local.pdf`                           |
-| links                 | Online files                                                                                                  | `pdf2zh http://arxiv.org/paper.pdf`            |
-| `-i`                  | [Enter GUI](#gui)                                                                                             | `pdf2zh -i`                                    |
-| `-p`                  | [Partial document translation](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#partial) | `pdf2zh example.pdf -p 1`                      |
-| `-li`                 | [Source language](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#languages)            | `pdf2zh example.pdf -li en`                    |
-| `-lo`                 | [Target language](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#languages)            | `pdf2zh example.pdf -lo zh`                    |
-| `-s`                  | [Translation service](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#services)         | `pdf2zh example.pdf -s deepl`                  |
-| `-t`                  | [Multi-threads](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#threads)                | `pdf2zh example.pdf -t 1`                      |
-| `-o`                  | Output dir                                                                                                    | `pdf2zh example.pdf -o output`                 |
-| `-f`, `-c`            | [Exceptions](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#exceptions)                | `pdf2zh example.pdf -f "(MS.*)"`               |
-| `-cp`                 | Compatibility Mode                                                                                            | `pdf2zh example.pdf --compatible`              |
-| `--skip-subset-fonts` | [Skip font subset](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#font-subset)         | `pdf2zh example.pdf --skip-subset-fonts`       |
-| `--ignore-cache`      | [Ignore translate cache](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#cache)         | `pdf2zh example.pdf --ignore-cache`            |
-| `--share`             | Public link (not supported by the FastHTML GUI)                                                              | `pdf2zh -i --share`                            |
-| `--authorized`        | [Authorization](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#auth)                   | `pdf2zh -i --authorized users.txt [auth.html]` |
-| `--prompt`            | [Custom Prompt](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#prompt)                 | `pdf2zh --prompt [prompt.txt]`                 |
-| `--onnx`              | [Use Custom DocLayout-YOLO ONNX model]                                                                        | `pdf2zh --onnx [onnx/model/path]`              |
-| `--serverport`        | [Use Custom WebUI port]                                                                                       | `pdf2zh --serverport 7860`                     |
-| `--dir`               | [batch translate]                                                                                             | `pdf2zh --dir /path/to/translate/`             |
-| `--config`            | [configuration file](https://github.com/Byaidu/PDFMathTranslate/blob/main/docs/ADVANCED.md#cofig)             | `pdf2zh --config /path/to/config/config.json`  |
-| `--serverport`        | [custom WebUI server port]                                                                                    | `pdf2zh --serverport 7860`                     |
-| `--mode`              | Translation mode: `fast` (default, v1) or `precise` (v2, experimental, requires pdf2zh_next submodule)         | `pdf2zh --mode precise example.pdf`            |
-| `--babeldoc`          | Use Experimental backend [BabelDOC](https://funstory-ai.github.io/BabelDOC/) to translate                     | `pdf2zh --babeldoc` -s openai example.pdf      |
-| `--mcp`               | Enable MCP STDIO mode                                                                                         | `pdf2zh --mcp`                                 |
-| `--sse`               | Enable MCP SSE mode                                                                                           | `pdf2zh --mcp --sse`                           |
-
-For detailed explanations, please refer to our document about [Advanced Usage](./docs/ADVANCED.md) for a full list of each option.
-
-<h3 id="downstream">4.2 Downstream Development</h3>
-For downstream applications, please refer to our document about [API Details](./docs/APIS.md) for further information about:
-
-- [Python API](./docs/APIS.md#api-python), how to use the program in other Python programs
-- [HTTP API](./docs/APIS.md#api-http), how to communicate with a server with the program installed
-
-<h3 id="downstream">4.3 Differences between two major forks</h3>
-
-- [Byaidu/PDFMathTranslate](https://github.com/Byaidu/PDFMathTranslate): The present and the original project for stable release.
-
-- [PDFMathTranslate/PDFMathTranslate-next](https://github.com/PDFMathTranslate/PDFMathTranslate-next): A fork with web-ui and additional features. This fork handles a large number of marginal cases, improves PDF compatibility, and optimizes cross-column and cross-page semantic consistency, dynamic scaling, and dynamic scaling consistency, among many other translation quality improvements. However, this fork is intended solely for development and does not address compatibility issues and is not designed for community-contributions.
-
-<h2 id="information">5. Project Information</h2>
-<h3 id="citation">5.1 Citation</h3>
-
-This work has been accepted by the [*Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing: System Demonstrations*](https://aclanthology.org/2025.emnlp-demos.71/) (EMNLP 2025). 
-
-Citation:
+[**Documentation**](https://github.com/Byaidu/PDFMathTranslate) > **FastAPI Backend** _(current)_
+
+<h2 id="toc">Table of Contents</h2>
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Starting the API server](#start)
+- [Quick translation with curl](#curl-translate)
+- [Environment variables](#env)
+- [API reference](#api)
+  - [Health check](#health)
+  - [Submit a translation job](#submit)
+  - [Poll job status](#status)
+  - [Cancel a job](#cancel)
+  - [Download results](#download)
+- [Using the FastHTML GUI as a client](#gui-client)
+- [Running both together](#together)
+- [Code changes summary](#changes)
+- [Cross-host fix: Connection refused](#crosshost)
+
+---
+
+<h2 id="overview">Overview</h2>
+
+`pdf2zh` ships a lightweight **FastAPI translation backend** (`pdf2zh/api_server.py`) that exposes the full translation engine over HTTP — no Redis or Celery required.
+
+It is an alternative to the existing Flask/Celery backend (`pdf2zh --flask`).  Key differences:
+
+| | FastAPI backend | Flask/Celery backend |
+|---|---|---|
+| Extra services needed | None | Redis + Celery worker |
+| Install extras | None | `pip install pdf2zh[backend]` |
+| Framework | FastAPI + uvicorn | Flask + Celery |
+| Progress format | `{"progress": 0.0–1.0, "message": "..."}` | `{"n": N, "total": T}` |
+| Port (default) | 7861 | 11008 |
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="architecture">Architecture</h2>
 
 ```
-@inproceedings{ouyang-etal-2025-pdfmathtranslate,
-	    title = "{PDFM}ath{T}ranslate: Scientific Document Translation Preserving Layouts",
-	    author = "Ouyang, Rongxin  and
-	      Chu, Chang  and
-	      Xin, Zhikuang  and
-	      Ma, Xiangyao",
-	    editor = {Habernal, Ivan  and
-	      Schulam, Peter  and
-	      Tiedemann, J{\"o}rg},
-	    booktitle = "Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing: System Demonstrations",
-	    month = nov,
-	    year = "2025",
-	    address = "Suzhou, China",
-	    publisher = "Association for Computational Linguistics",
-	    url = "https://aclanthology.org/2025.emnlp-demos.71/",
-	    pages = "918--924",
-	    ISBN = "979-8-89176-334-0",
-	    abstract = "Language barriers in scientific documents hinder the diffusion and development of science and technologies. However, prior efforts in translating such documents largely overlooked the information in layouts. To bridge the gap, we introduce PDFMathTranslate, the world{'}s first open-source software for translating scientific documents while preserving layouts. Leveraging the most recent advances in large language models and precise layout detection, we contribute to the community with key improvements in precision, flexibility, and efficiency. The work is open-sourced at https://github.com/byaidu/pdfmathtranslate with more than 222k downloads."
-	}
+┌────────────────────────┐        HTTP (httpx)       ┌────────────────────────┐
+│  FastHTML GUI          │ ──── POST /v1/translate ──▶│  FastAPI backend       │
+│  pdf2zh --gui          │ ──── GET  /v1/translate/…──▶│  pdf2zh.api_server     │
+│  (port 7860)           │ ◀─── progress / files ────│  (port 7861)           │
+└────────────────────────┘                            └────────────────────────┘
+        ▲                                                       │
+        │ browser                                    spawns subprocess
+        └── user                                               │
+                                                    ┌──────────────────────┐
+                                                    │  translation engine  │
+                                                    │  KernelRegistry      │
+                                                    └──────────────────────┘
 ```
-<h3 id="acknowledgement">5.2 Acknowledgement</h3>
 
-- [Immersive Translation](https://immersivetranslate.com) sponsors monthly Pro membership redemption codes for active contributors to this project, see details at: [CONTRIBUTOR_REWARD.md](https://github.com/funstory-ai/BabelDOC/blob/main/docs/CONTRIBUTOR_REWARD.md)
+When `PDF2ZH_API_BASE_URL` is set the FastHTML GUI acts as a thin client:
+it uploads the PDF, polls for progress, and downloads the finished files — the
+heavy lifting happens entirely inside the API process.
 
-- New backend: [BabelDOC](https://github.com/funstory-ai/BabelDOC)
+Without `PDF2ZH_API_BASE_URL` the GUI behaves exactly as before (local
+multiprocessing, no API involved).
 
-- Document merging: [PyMuPDF](https://github.com/pymupdf/PyMuPDF)
+[⬆️ Back to top](#toc)
 
-- Document parsing: [Pdfminer.six](https://github.com/pdfminer/pdfminer.six)
+---
 
-- Document extraction: [MinerU](https://github.com/opendatalab/MinerU)
+<h2 id="start">Starting the API server</h2>
 
-- Document Preview: browser-native PDF preview
+**Recommended — via the `pdf2zh` CLI (binds to `0.0.0.0` by default):**
 
-- Multi-threaded translation: [MathTranslate](https://github.com/SUSYUSTC/MathTranslate)
+```bash
+pdf2zh --api                          # 0.0.0.0:7861
+pdf2zh --api --api-port 8000          # custom port
+pdf2zh --api --api-host 127.0.0.1    # localhost only
+```
 
-- Layout parsing: [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
+**Via Python module (also binds to `0.0.0.0` by default):**
 
-- Document standard: [PDF Explained](https://zxyle.github.io/PDF-Explained/), [PDF Cheat Sheets](https://pdfa.org/resource/pdf-cheat-sheets/)
+```bash
+python -m pdf2zh.api_server
+```
 
-- Multilingual Font: [Go Noto Universal](https://github.com/satbyy/go-noto-universal)
+**Via uvicorn directly (defaults to `127.0.0.1` — add `--host 0.0.0.0` for cross-host access):**
 
-<h3 id="contrib">5.3 Contributors</h3>
+```bash
+uvicorn pdf2zh.api_server:app --host 0.0.0.0 --port 7861
+```
 
-<a href="https://github.com/Byaidu/PDFMathTranslate/graphs/contributors">
-  <img src="https://opencollective.com/PDFMathTranslate/contributors.svg?width=890&button=false" />
-</a>
+> **Warning:** omitting `--host 0.0.0.0` from a plain `uvicorn` command binds
+> the server to `127.0.0.1` only, making it unreachable from other hosts and
+> producing `[Errno 111] Connection refused` on the GUI side.  Use
+> `pdf2zh --api` or `python -m pdf2zh.api_server` to avoid this.
 
-![Alt](https://repobeats.axiom.co/api/embed/dfa7583da5332a11468d686fbd29b92320a6a869.svg "Repobeats analytics image")
+**Programmatically:**
 
-For details on how to contribute, please consult the [Contribution Guide](https://github.com/Byaidu/PDFMathTranslate/wiki/Contribution-Guide---%E8%B4%A1%E7%8C%AE%E6%8C%87%E5%8D%97).
+```python
+from pdf2zh.api_server import run_api_server
 
+run_api_server(host="0.0.0.0", port=7861)
+```
 
-<h3 id="star_hist">5.4 Star History</h3>
+The interactive docs (Swagger UI) are available at `http://127.0.0.1:7861/docs`
+once the server is running.
 
-<a href="https://star-history.com/#Byaidu/PDFMathTranslate&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Byaidu/PDFMathTranslate&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Byaidu/PDFMathTranslate&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Byaidu/PDFMathTranslate&type=Date"/>
- </picture>
-</a>
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="curl-translate">Quick translation with curl</h2>
+
+With the API server running, translate a local PDF from English to Simplified
+Chinese using the default Google service:
+
+```bash
+curl http://127.0.0.1:7861/v1/translate \
+  -F "file=@paper.pdf" \
+  -F "service=Google" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese"
+```
+
+The request starts translation asynchronously and returns a job ID:
+
+```json
+{"job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a"}
+```
+
+Use that ID with the status and download endpoints documented below to retrieve
+the translated PDF when the job is complete.
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="env">Environment variables</h2>
+
+| Variable | Default | Description |
+|---|---|---|
+| `PDF2ZH_API_OUTPUT` | `pdf2zh_api_files` | Directory where translated PDFs are stored by the API server |
+| `PDF2ZH_API_HOST` | `0.0.0.0` | Bind address used by `run_api_server()` |
+| `PDF2ZH_API_PORT` | `7861` | Port used by `run_api_server()` |
+| `PDF2ZH_API_BASE_URL` | _(empty)_ | **GUI only** — URL of the FastAPI backend. When set, the FastHTML GUI delegates all translation to that server. Example: `http://127.0.0.1:7861` |
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="api">API reference</h2>
+
+Base URL: `http://127.0.0.1:7861`
+
+---
+
+<h3 id="health">GET /health</h3>
+
+Liveness check.
+
+```bash
+curl http://127.0.0.1:7861/health
+```
+
+```json
+{"status": "ok", "version": "1.0.0"}
+```
+
+---
+
+<h3 id="submit">POST /v1/translate</h3>
+
+Submit a translation job.  Accepts `multipart/form-data`.  Returns `202 Accepted`
+immediately with the job ID — translation runs asynchronously.
+
+**File upload:**
+
+```bash
+curl http://127.0.0.1:7861/v1/translate \
+  -F "file=@paper.pdf" \
+  -F "service=Google" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese"
+```
+
+**Local Ollama model (`qwen3.6:latest`):**
+
+Please refer to the test script in [test/test_translate_service.sh](../test/test_translate_service.sh).
+
+**Form parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `file` | — | PDF file upload (mutually exclusive with `link`) |
+| `link` | `""` | URL to a PDF (mutually exclusive with `file`) |
+| `service` | `Google` | Translator service name (see table below) |
+| `lang_from` | `English` | Source language display name |
+| `lang_to` | `Simplified Chinese` | Target language display name |
+| `page_range` | `All` | `All`, `First`, `First 5 pages`, or `Others` |
+| `page_input` | `""` | Custom page range when `page_range=Others`, e.g. `1-3,5,7-9` |
+| `prompt` | `""` | Custom prompt template for LLM-based translators |
+| `threads` | `4` | Number of translation threads |
+| `skip_subset_fonts` | `false` | Skip font subsetting step |
+| `ignore_cache` | `false` | Bypass translation cache |
+| `vfont` | `""` | Vertical font regex |
+| `mode_choice` | `fast` | Kernel mode: `fast` or `precise` |
+| `env_0`–`env_3` | `""` | Translator-specific config (API keys, endpoints, model names) |
+
+**Supported service names:**
+
+`Google`, `Bing`, `DeepL`, `DeepLX`, `Ollama`, `Xinference`, `AzureOpenAI`,
+`OpenAI`, `Zhipu`, `ModelScope`, `Silicon`, `Gemini`, `Azure`, `Tencent`,
+`Dify`, `AnythingLLM`, `Argos Translate`, `Grok`, `Groq`, `DeepSeek`,
+`MiniMax`, `OpenAI-liked`, `Ali Qwen-Translation`, `302.AI`
+
+**Language display names:**
+
+`English`, `Simplified Chinese`, `Traditional Chinese`, `French`, `German`,
+`Japanese`, `Korean`, `Russian`, `Spanish`, `Italian`
+
+---
+
+<h3 id="status">GET /v1/translate/{job_id}</h3>
+
+Poll the status and progress of a job.
+
+```bash
+curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a
+```
+
+**While running:**
+
+```json
+{
+  "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
+  "status": "running",
+  "progress": 0.42,
+  "message": "Translating page 21 / 50",
+  "error": null,
+  "elapsed_seconds": 18.3
+}
+```
+
+**On success:**
+
+```json
+{
+  "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
+  "status": "done",
+  "progress": 1.0,
+  "message": "Translation complete",
+  "error": null,
+  "elapsed_seconds": 42.1
+}
+```
+
+**On failure:**
+
+```json
+{
+  "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
+  "status": "error",
+  "progress": 1.0,
+  "message": "Worker crashed (exit code 1).",
+  "error": "Worker crashed (exit code 1).",
+  "elapsed_seconds": 5.0
+}
+```
+
+`status` is one of `running`, `done`, or `error`.
+
+---
+
+<h3 id="cancel">DELETE /v1/translate/{job_id}</h3>
+
+Terminate a running job.
+
+```bash
+curl -X DELETE \
+  http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a
+```
+
+```json
+{"status": "cancelled"}
+```
+
+---
+
+<h3 id="download">GET /v1/translate/{job_id}/{variant}</h3>
+
+Download a translated PDF.  `variant` is `mono` (translated language only) or
+`dual` (original and translated pages interleaved).  Returns `409` if the job
+is not yet finished.
+
+```bash
+# Monolingual output
+curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/mono \
+  --output paper-mono.pdf
+
+# Bilingual output
+curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/dual \
+  --output paper-dual.pdf
+```
+
+**Python client example:**
+
+```python
+import time
+import httpx
+
+API = "http://127.0.0.1:7861"
+
+# Submit
+resp = httpx.post(f"{API}/v1/translate",
+    data={"service": "Google", "lang_from": "English", "lang_to": "Simplified Chinese"},
+    files={"file": ("paper.pdf", open("paper.pdf", "rb"), "application/pdf")},
+)
+resp.raise_for_status()
+job_id = resp.json()["job_id"]
+
+# Poll
+while True:
+    status = httpx.get(f"{API}/v1/translate/{job_id}").json()
+    print(f"[{status['progress']:.0%}] {status['message']}")
+    if status["status"] in ("done", "error"):
+        break
+    time.sleep(1)
+
+# Download
+if status["status"] == "done":
+    for variant in ("mono", "dual"):
+        data = httpx.get(f"{API}/v1/translate/{job_id}/{variant}").content
+        open(f"paper-{variant}.pdf", "wb").write(data)
+```
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="gui-client">Using the FastHTML GUI as a client</h2>
+
+Set `PDF2ZH_API_BASE_URL` before starting the GUI:
+
+```bash
+# Terminal 1 — API backend (binds to 0.0.0.0 by default)
+pdf2zh --api
+
+# Terminal 2 — FastHTML GUI (acts as API client)
+PDF2ZH_API_BASE_URL=http://127.0.0.1:7861 pdf2zh --gui
+```
+
+With this configuration:
+
+1. The GUI uploads the user's PDF to `POST /v1/translate` via `httpx`.
+2. A background thread polls `GET /v1/translate/{job_id}` every 500 ms and
+   mirrors progress into the GUI's job store — the progress bar and status
+   messages work exactly as in standalone mode.
+3. When the job finishes, the GUI fetches the mono and dual PDFs from the API
+   and saves them to its own `pdf2zh_files/` directory so the built-in
+   `/file` and `/download` routes serve them without change.
+4. Clicking **Cancel** in the GUI calls `DELETE /v1/translate/{job_id}` on the
+   API to terminate the subprocess there.
+
+No changes to the GUI's URL scheme or result pages are needed — the API
+integration is transparent to the browser.
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="together">Running both together</h2>
+
+**Docker Compose example:**
+
+```yaml
+services:
+  api:
+    image: pdf2zh
+    command: python -m pdf2zh.api_server
+    environment:
+      PDF2ZH_API_OUTPUT: /data/api
+    volumes:
+      - pdf2zh_data:/data
+    ports:
+      - "7861:7861"
+
+  gui:
+    image: pdf2zh
+    command: pdf2zh --gui
+    environment:
+      PDF2ZH_API_BASE_URL: http://api:7861
+    volumes:
+      - pdf2zh_data:/data
+    ports:
+      - "7860:7860"
+    depends_on:
+      - api
+
+volumes:
+  pdf2zh_data:
+```
+
+**Standalone (single machine):**
+
+```bash
+PDF2ZH_API_OUTPUT=./api-output pdf2zh --api &
+
+PDF2ZH_API_BASE_URL=http://127.0.0.1:7861 \
+  pdf2zh --gui --port 7860
+```
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="changes">Code changes summary</h2>
+
+### New file: `pdf2zh/api_server.py`
+
+Self-contained FastAPI application.  Depends only on existing `pdf2zh`
+internals (`KernelRegistry`, `TranslateRequest`, translator classes,
+`ConfigManager`) — no new runtime dependencies beyond `fastapi` and `uvicorn`,
+which were already required by the FastHTML GUI.
+
+Key implementation details:
+
+- Each job gets its own subdirectory under `PDF2ZH_API_OUTPUT/<job_id>/` so
+  concurrent jobs never clobber each other's files.
+- Translation runs in a **spawned subprocess** (same isolation model as the
+  GUI) to keep the API process responsive and to allow clean `SIGTERM`
+  cancellation.
+- A daemon **monitor thread** per job drains the inter-process progress queue
+  and updates the in-memory `_jobs` dict that the status endpoint reads.
+- The job store is in-memory; restart the server and existing job IDs are lost.
+  Files on disk remain until manually deleted.
+
+### Changes to `pdf2zh/gui_fasthtml.py`
+
+| Location | Change |
+|---|---|
+| Top-level imports | Added `import httpx` |
+| After `GUI_ONNX` | Added `API_BASE_URL` constant read from `PDF2ZH_API_BASE_URL` env var |
+| `stop_translate_file()` | Extended to call `DELETE /v1/translate/{api_job_id}` when an API-backed job is active |
+| After `_translate_file_process()` | Added `_run_api_translation_job(session_id, params)` — the API client coroutine that runs in a daemon thread |
+| `/translate` endpoint | Branches on `API_BASE_URL`: starts `_run_api_translation_job` thread (API mode) or original `run_translation_job` thread (local mode) |
+
+### `pyproject.toml`
+
+Added `httpx` to the main dependencies list (it was already transitively
+installed but is now an explicit requirement).
+
+[⬆️ Back to top](#toc)
+
+---
+
+<h2 id="crosshost">Cross-host fix: Connection refused</h2>
+
+### Problem
+
+When the FastAPI server and the FastHTML GUI run on different machines,
+translation fails immediately with:
+
+```
+[Errno 111] Connection refused
+```
+
+Three issues combined to cause this:
+
+| # | Root cause | Effect |
+|---|-----------|--------|
+| 1 | `uvicorn pdf2zh.api_server:app` binds to `127.0.0.1` by default | All TCP connections from a remote GUI host are refused at the OS level |
+| 2 | `run_api_server()` evaluated `ConfigManager.get(...)` at **import time** as default parameter values | Host/port read from whichever machine imported the module first; could freeze the wrong value |
+| 3 | `_run_api_translation_job` used a single combined `timeout=30` for all phases | Large PDF uploads timed out mid-transfer; `ConnectError` was surfaced as a raw unguided exception |
+
+### Fix
+
+**`pdf2zh/api_server.py` — compute host/port at call time**
+
+`run_api_server()` no longer uses `ConfigManager.get(...)` as a default
+argument (evaluated at import time). The values are now resolved inside the
+function body each time it is called:
+
+```python
+# before — evaluated once at module import
+def run_api_server(
+    host: str = ConfigManager.get("PDF2ZH_API_HOST", "0.0.0.0"),
+    ...
+
+# after — read fresh on every call
+def run_api_server(host: Optional[str] = None, port: Optional[int] = None):
+    _host = host or (ConfigManager.get("PDF2ZH_API_HOST") or "0.0.0.0")
+    _port = port or int(ConfigManager.get("PDF2ZH_API_PORT") or "7861")
+    uvicorn.run(app, host=_host, port=_port)
+```
+
+**`pdf2zh/pdf2zh.py` — new `--api` CLI flag**
+
+The `pdf2zh --api` command starts the API server via `run_api_server()`,
+which defaults to `0.0.0.0` and therefore accepts connections from any host:
+
+```bash
+pdf2zh --api                          # 0.0.0.0:7861
+pdf2zh --api --api-host 0.0.0.0      # explicit
+pdf2zh --api --api-port 8000          # custom port
+```
+
+Three new argparse arguments were added to `create_parser()`:
+`--api`, `--api-host`, `--api-port`.  The handler in `main()` calls
+`run_api_server()` and returns before any model loading, matching the pattern
+of `--flask` and `--interactive`.
+
+**`pdf2zh/gui_fasthtml.py` — preflight check and per-phase timeouts**
+
+`_run_api_translation_job` now:
+
+1. **Preflight `GET /health`** before uploading the PDF.  On
+   `httpx.ConnectError` it fails immediately with a message that names both
+   the problem and the fix:
+
+   ```
+   Cannot connect to API server at http://…
+   Make sure it is running and bound to 0.0.0.0, not 127.0.0.1.
+   Start it with: pdf2zh --api  (or: python -m pdf2zh.api_server)
+   ```
+
+2. **Per-phase `httpx.Timeout`** instead of a single combined value:
+
+   | Phase | Timeout |
+   |-------|---------|
+   | Connect | 10 s |
+   | Write (PDF upload) | unlimited |
+   | Read | 60 s (poll) / 300 s (download) |
+   | Pool | 10 s |
+
+   The unlimited write timeout prevents large PDFs from being cut off
+   mid-upload on a slow link.
+
+3. **`httpx.ConnectError` caught explicitly** at every call site (submit,
+   poll, download) so every failure path produces a message that mentions the
+   `0.0.0.0` bind requirement rather than a bare errno string.
+
+### Quick reference
+
+```bash
+# Server (remote host or same machine — 0.0.0.0 required for cross-host)
+pdf2zh --api --api-host 0.0.0.0 --api-port 7861
+
+# GUI (any host)
+PDF2ZH_API_BASE_URL=http://<server-ip>:7861 pdf2zh --gui
+```
+
+[⬆️ Back to top](#toc)
