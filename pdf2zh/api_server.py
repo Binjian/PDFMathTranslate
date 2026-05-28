@@ -199,7 +199,7 @@ def _validate_ollama_envs(envs: dict[str, str | None]) -> None:
 
 
 def _cleanup_job_artifacts(job_id: str, job: dict) -> dict:
-    """Remove translated PDF outputs for a completed job."""
+    """Remove PDF files for a completed job."""
     if job.get("status") == "running":
         raise HTTPException(409, "Cannot remove artifacts while job is running")
 
@@ -214,8 +214,7 @@ def _cleanup_job_artifacts(job_id: str, job: dict) -> dict:
         if path_str:
             candidates.add(Path(path_str))
     if job_dir.exists():
-        candidates.update(job_dir.glob("*-mono.pdf"))
-        candidates.update(job_dir.glob("*-dual.pdf"))
+        candidates.update(job_dir.glob("*.pdf"))
 
     removed: list[str] = []
     for path in sorted(candidates):

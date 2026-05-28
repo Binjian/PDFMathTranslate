@@ -288,7 +288,7 @@ curl -X DELETE \
 
 <h3 id="artifacts">DELETE /v1/translate/{job_id}/artifacts</h3>
 
-Remove the translated PDF artifacts generated for a job. The source PDF upload is left in place. The alias `/v1/translate/{job_id}/artefacts` is also supported. Returns `409` if the job is still running.
+Remove the PDF files generated or stored for a job, including the uploaded source PDF. The alias `/v1/translate/{job_id}/artefacts` is also supported. Returns `409` if the job is still running.
 
 ```bash
 curl -X DELETE \
@@ -299,7 +299,7 @@ curl -X DELETE \
 {
   "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
   "status": "artifacts_removed",
-  "removed_files": ["paper-mono.pdf", "paper-dual.pdf"]
+  "removed_files": ["paper-dual.pdf", "paper-mono.pdf", "paper.pdf"]
 }
 ```
 
