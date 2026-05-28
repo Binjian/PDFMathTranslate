@@ -161,6 +161,12 @@ class TestApiBackendClient(unittest.TestCase):
         self.assertEqual(envs["OLLAMA_TIMEOUT"], "300")
         self.assertEqual(envs["OLLAMA_THINK"], "false")
 
+    def test_llm_usage_formatter_reports_zero_requests(self):
+        self.assertEqual(
+            api_server._format_llm_usage({"requests": 0, "prompt_eval_count": 0}),
+            "requests: 0",
+        )
+
     def test_api_ollama_validation_rejects_missing_model(self):
         envs = {
             "OLLAMA_HOST": "http://172.27.74.49:11434",

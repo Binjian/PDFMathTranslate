@@ -241,6 +241,8 @@ def _format_llm_usage(usage: dict | None) -> str:
         parts.append(f"api time: {request_duration}")
     if load_duration:
         parts.append(f"load: {load_duration}")
+    if not parts and "requests" in usage:
+        return "requests: 0"
     return "; ".join(parts)
 
 
