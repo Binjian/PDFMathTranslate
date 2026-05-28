@@ -9,6 +9,7 @@ LANG_FROM="${LANG_FROM:-English}"
 LANG_TO="${LANG_TO:-Simplified Chinese}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://172.27.74.16:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3.6:latest}"
+IGNORE_CACHE="${IGNORE_CACHE:-false}"
 OUTPUT_DIR="${OUTPUT_DIR:-translate_service_output}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
 MAX_POLLS="${MAX_POLLS:-300}"
@@ -28,6 +29,7 @@ submit_response="$(
     -F "mode_choice=${MODE_CHOICE}" \
     -F "lang_from=${LANG_FROM}" \
     -F "lang_to=${LANG_TO}" \
+    -F "ignore_cache=${IGNORE_CACHE}" \
     -F "env_0=${OLLAMA_HOST}" \
     -F "env_1=${OLLAMA_MODEL}"
 )"

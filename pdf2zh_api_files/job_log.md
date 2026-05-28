@@ -1,0 +1,6 @@
+| timestamp | job_id | service | files | elapsed_time | llm_usage | response |
+|---|---|---|---|---:|---|---|
+| 2026-05-28 15:35:25 | 526e20ea-eb79-48c5-b6c6-ec6dd6d58fc8 | Ollama | maxent-2008.pdf, maxent-2008-mono.pdf, maxent-2008-dual.pdf | 3s |  | {"dual": "maxent-2008-dual.pdf", "message": "Translation complete", "mono": "maxent-2008-mono.pdf", "status": "done"} |
+| 2026-05-28 15:35:26 | 526e20ea-eb79-48c5-b6c6-ec6dd6d58fc8 | Ollama | maxent-2008.pdf, maxent-2008-dual.pdf, maxent-2008-mono.pdf | 3s |  | {"job_id": "526e20ea-eb79-48c5-b6c6-ec6dd6d58fc8", "removed_files": ["maxent-2008-dual.pdf", "maxent-2008-mono.pdf", "maxent-2008.pdf"], "status": "artifacts_removed"} |
+| 2026-05-28 15:44:40 | 7de76e15-dad9-46a0-aacd-2789dbb81e0b | Ollama | maxent-2008.pdf, maxent-2008-mono.pdf, maxent-2008-dual.pdf | 3s | requests: 0 | {"dual": "maxent-2008-dual.pdf", "message": "Translation complete", "mono": "maxent-2008-mono.pdf", "status": "done"} |
+| 2026-05-28 15:44:42 | 7de76e15-dad9-46a0-aacd-2789dbb81e0b | Ollama | maxent-2008.pdf, maxent-2008-dual.pdf, maxent-2008-mono.pdf | 3s | requests: 0 | {"job_id": "7de76e15-dad9-46a0-aacd-2789dbb81e0b", "removed_files": ["maxent-2008-dual.pdf", "maxent-2008-mono.pdf", "maxent-2008.pdf"], "status": "artifacts_removed"} |
