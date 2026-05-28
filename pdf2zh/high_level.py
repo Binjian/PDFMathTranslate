@@ -10,6 +10,7 @@ import logging
 from asyncio import CancelledError
 from pathlib import Path
 from string import Template
+from types import SimpleNamespace
 from typing import Any, BinaryIO, List, Optional, Dict
 
 import numpy as np
@@ -123,9 +124,6 @@ def translate_patch(
                 raise CancelledError("task cancelled")
             if pages and (pageno not in pages):
                 continue
-            progress.update()
-            if callback:
-                callback(progress)
             page.pageno = pageno
             pix = doc_zh[page.pageno].get_pixmap()
             image = np.frombuffer(pix.samples, np.uint8).reshape(
@@ -163,9 +161,17 @@ def translate_patch(
             doc_zh.update_stream(page.page_xref, b"")
             doc_zh[page.pageno].set_contents(page.page_xref)
             interpreter.process_page(page)
+            progress.update()
+            if callback:
+                callback(progress)
 
     device.close()
     return obj_patch
+
+
+def _notify_progress(callback: object, n: int, total: int, message: str) -> None:
+    if callback:
+        callback(SimpleNamespace(n=n, total=total, desc=message))
 
 
 def translate_stream(
@@ -233,6 +239,8 @@ def translate_stream(
     doc_zh.save(fp)
     obj_patch: dict = translate_patch(fp, **locals())
 
+    _notify_progress(callback, 99, 100, "Finalizing PDF...")
+
     for obj_id, ops_new in obj_patch.items():
         # ops_old=doc_en.xref_stream(obj_id)
         # print(obj_id)
@@ -244,8 +252,10 @@ def translate_stream(
     for id in range(page_count):
         doc_en.move_page(page_count + id, id * 2 + 1)
     if not skip_subset_fonts:
+        _notify_progress(callback, 99, 100, "Subsetting fonts...")
         doc_zh.subset_fonts(fallback=True)
         doc_en.subset_fonts(fallback=True)
+    _notify_progress(callback, 99, 100, "Writing PDF...")
     return (
         _write_pdf(doc_zh),
         _write_pdf(doc_en),
