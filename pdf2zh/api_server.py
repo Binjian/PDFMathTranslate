@@ -142,18 +142,60 @@ def _normalize_ollama_host(host: str) -> str:
     return host.rstrip("/")
 
 
-def _resolve_translator_envs(service: str, submitted: list[str]) -> dict[str, str | None]:
+def _resolve_translator_envs(
+    service: str, submitted: list[str]
+) -> dict[str, str | None]:
     """Resolve request-scoped translator settings for a submitted API job."""
     translator = SERVICE_MAP[service]
     envs: dict[str, str | None] = {}
     for i, (key, default) in enumerate(translator.envs.items()):
-        envs[key] = submitted[i] if i < len(submitted) else default
+        value = submitted[i] if i < len(submitted) else ""
+        envs[key] = value if value != "" else default
     if service == "Ollama":
         envs["OLLAMA_HOST"] = _normalize_ollama_host(str(envs["OLLAMA_HOST"]))
     for key, value in envs.items():
         if key.upper().endswith("API_KEY") and value == "***":
             envs[key] = ConfigManager.get_env_by_translatername(translator, key, None)
     return envs
+
+
+def _ollama_model_names(host: str, timeout: float = 2) -> list[str]:
+    """Return installed Ollama model names as seen from the API backend."""
+    host = _normalize_ollama_host(host)
+    if not host:
+        raise ValueError("Ollama host must not be empty")
+    with _requests.Session() as session:
+        session.trust_env = False
+        response = session.get(f"{host}/api/tags", timeout=timeout)
+    response.raise_for_status()
+    return [
+        model["name"]
+        for model in response.json().get("models", [])
+        if isinstance(model, dict) and model.get("name")
+    ]
+
+
+def _validate_ollama_envs(envs: dict[str, str | None]) -> None:
+    """Fail fast when the submitted Ollama host/model cannot run the job."""
+    host = str(envs.get("OLLAMA_HOST") or "")
+    model = str(envs.get("OLLAMA_MODEL") or "")
+    if not model:
+        raise HTTPException(400, "Ollama model must not be empty")
+    try:
+        models = _ollama_model_names(host)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            502, f"Unable to query Ollama models from {_normalize_ollama_host(host)}"
+        ) from exc
+    if model not in models:
+        available = ", ".join(models) if models else "none"
+        raise HTTPException(
+            400,
+            f"Ollama model '{model}' is not installed on {host}. "
+            f"Available models: {available}",
+        )
 
 # ── Translation subprocess ────────────────────────────────────────────────────
 
@@ -325,23 +367,14 @@ def health() -> dict:
 def ollama_models(host: str = OllamaTranslator.envs["OLLAMA_HOST"]) -> dict:
     """List models from Ollama as reachable by the translation backend."""
     host = _normalize_ollama_host(host)
-    if not host:
-        raise HTTPException(400, "Ollama host must not be empty")
     try:
-        with _requests.Session() as session:
-            session.trust_env = False
-            response = session.get(f"{host}/api/tags", timeout=2)
-        response.raise_for_status()
-        models = [
-            model["name"]
-            for model in response.json().get("models", [])
-            if isinstance(model, dict) and model.get("name")
-        ]
+        return {"models": _ollama_model_names(host)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
             502, f"Unable to query Ollama models from {host}"
         ) from exc
-    return {"models": models}
 
 
 @app.post("/v1/translate", status_code=202)
@@ -373,6 +406,14 @@ async def create_translate_job(
         raise HTTPException(400, f"Unknown service '{service}'. "
                             f"Valid values: {sorted(SERVICE_MAP)}")
 
+    translator = SERVICE_MAP[service]
+    envs = _resolve_translator_envs(service, [env_0, env_1, env_2, env_3])
+    if service == "Ollama":
+        _validate_ollama_envs(envs)
+        logger.info(
+            "Submitting Ollama translation using OLLAMA_HOST=%s", envs["OLLAMA_HOST"]
+        )
+
     job_id = str(uuid.uuid4())
     job_dir = OUTPUT_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -397,14 +438,6 @@ async def create_translate_job(
     else:
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(400, "Provide a file upload or a link")
-
-    # Resolve request-scoped translator settings before spawning the worker.
-    translator = SERVICE_MAP[service]
-    envs = _resolve_translator_envs(service, [env_0, env_1, env_2, env_3])
-    if service == "Ollama":
-        logger.info(
-            "Submitting Ollama translation using OLLAMA_HOST=%s", envs["OLLAMA_HOST"]
-        )
 
     lang_in = LANG_MAP.get(lang_from, lang_from)
     lang_out = LANG_MAP.get(lang_to, lang_to)

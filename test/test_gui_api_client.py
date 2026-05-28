@@ -158,6 +158,24 @@ class TestApiBackendClient(unittest.TestCase):
 
         self.assertEqual(envs["OLLAMA_HOST"], "http://172.27.74.49:11434")
         self.assertEqual(envs["OLLAMA_MODEL"], "qwen3.6:latest")
+        self.assertEqual(envs["OLLAMA_TIMEOUT"], "300")
+        self.assertEqual(envs["OLLAMA_THINK"], "false")
+
+    def test_api_ollama_validation_rejects_missing_model(self):
+        envs = {
+            "OLLAMA_HOST": "http://172.27.74.49:11434",
+            "OLLAMA_MODEL": "missing:latest",
+        }
+        with (
+            patch.object(
+                api_server, "_ollama_model_names", return_value=["qwen3.6:latest"]
+            ),
+            self.assertRaises(api_server.HTTPException) as caught,
+        ):
+            api_server._validate_ollama_envs(envs)
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("missing:latest", caught.exception.detail)
 
     def test_gui_ollama_fields_use_client_environment_host(self):
         with (
