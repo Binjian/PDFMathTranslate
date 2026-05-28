@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 _SUBMODULE_DIR = Path(__file__).resolve().parent / "PDFMathTranslate-next.git"
 _VENV_DIR = _SUBMODULE_DIR / ".venv"
 _WORKER_SCRIPT = Path(__file__).resolve().parent / "v2_worker.py"
+_DEFAULT_INSTALL_TIMEOUT_SECONDS = 1800
+_INSTALL_TIMEOUT_ENV = "PDF2ZH_PRECISE_INSTALL_TIMEOUT"
 
 
 def _venv_python() -> str:
@@ -27,6 +29,23 @@ def _venv_python() -> str:
     if sys.platform == "win32":
         return str(_VENV_DIR / "Scripts" / "python.exe")
     return str(_VENV_DIR / "bin" / "python")
+
+
+def _install_timeout_seconds() -> int:
+    raw_value = os.environ.get(_INSTALL_TIMEOUT_ENV)
+    if raw_value is None:
+        return _DEFAULT_INSTALL_TIMEOUT_SECONDS
+    try:
+        timeout = int(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; using %ss",
+            _INSTALL_TIMEOUT_ENV,
+            raw_value,
+            _DEFAULT_INSTALL_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_INSTALL_TIMEOUT_SECONDS
+    return max(timeout, 60)
 
 
 class PreciseKernel:
@@ -92,7 +111,7 @@ class PreciseKernel:
         subprocess.run(
             [_venv_python(), "-m", "pip", "install", "-e", str(_SUBMODULE_DIR)],
             check=True,
-            timeout=300,
+            timeout=_install_timeout_seconds(),
             cwd=str(_SUBMODULE_DIR),
         )
 
