@@ -14,6 +14,7 @@ IGNORE_CACHE="${IGNORE_CACHE:-false}"
 OUTPUT_DIR="${OUTPUT_DIR:-translate_service_output}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
 MAX_POLLS="${MAX_POLLS:-300}"
+CURL=(curl --noproxy "*")
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -23,7 +24,7 @@ json_get() {
 
 echo "Submitting translation job to ${API_BASE_URL}/v1/translate"
 submit_response="$(
-  curl --fail --silent --show-error \
+  "${CURL[@]}" --fail --silent --show-error \
     "${API_BASE_URL}/v1/translate" \
     -F "file=@${PDF_FILE}" \
     -F "service=${SERVICE}" \
@@ -47,7 +48,7 @@ echo "Job ID: $job_id"
 status=""
 for ((i = 1; i <= MAX_POLLS; i++)); do
   status_response="$(
-    curl --fail --silent --show-error \
+    "${CURL[@]}" --fail --silent --show-error \
       "${API_BASE_URL}/v1/translate/${job_id}"
   )"
 
@@ -80,12 +81,12 @@ mono_path="${OUTPUT_DIR}/${job_id}-mono.pdf"
 dual_path="${OUTPUT_DIR}/${job_id}-dual.pdf"
 
 echo "Downloading mono PDF to $mono_path"
-curl --fail --silent --show-error \
+"${CURL[@]}" --fail --silent --show-error \
   "${API_BASE_URL}/v1/translate/${job_id}/mono" \
   --output "$mono_path"
 
 echo "Downloading dual PDF to $dual_path"
-curl --fail --silent --show-error \
+"${CURL[@]}" --fail --silent --show-error \
   "${API_BASE_URL}/v1/translate/${job_id}/dual" \
   --output "$dual_path"
 
@@ -94,7 +95,7 @@ ls -lh "$mono_path" "$dual_path"
 
 echo "Deleting remote artifacts for job ${job_id}"
 delete_response="$(
-  curl --fail --silent --show-error \
+  "${CURL[@]}" --fail --silent --show-error \
     -X DELETE \
     "${API_BASE_URL}/v1/translate/${job_id}/artifacts"
 )"
