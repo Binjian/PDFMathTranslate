@@ -113,9 +113,11 @@ def request_to_cli_args(request: Any) -> list[str]:
     service, _model = _split_service_model(service_raw)
     pages_v2 = _pages_to_v2(data.get("pages"))
 
-    # Positional: files
+    # Positional: files — resolve to absolute paths so the subprocess cwd doesn't matter
+    from pathlib import Path as _Path
+
     for f in data.get("files", []):
-        args.append(f)
+        args.append(str(_Path(f).resolve()))
 
     if data.get("lang_in"):
         args.extend(["--lang-in", data["lang_in"]])
