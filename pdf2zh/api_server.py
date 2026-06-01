@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import requests as _requests
-import tqdm
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -470,13 +469,22 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
         KernelRegistry.switch(params["mode_choice"])
         kernel = KernelRegistry.get()
 
-        def _cb(t: tqdm.tqdm) -> None:
-            total = max(getattr(t, "total", 0) or 0, 1)
+        def _cb(t) -> None:
+            if isinstance(t, dict):
+                event_type = t.get("type", "")
+                if event_type not in ("progress_start", "progress_update", "progress_end"):
+                    return
+                progress = float(t.get("overall_progress") or t.get("stage_progress") or 0.0)
+                message = t.get("stage", "") or "Translating..."
+            else:
+                total = max(getattr(t, "total", 0) or 0, 1)
+                progress = min(0.99, max(0.0, t.n / total))
+                message = getattr(t, "desc", "") or "Translating..."
             progress_queue.put(
                 {
                     "type": "progress",
-                    "progress": min(0.99, max(0.0, t.n / total)),
-                    "message": getattr(t, "desc", "") or "Translating...",
+                    "progress": min(0.99, max(0.0, progress)),
+                    "message": message,
                 }
             )
 
