@@ -93,6 +93,9 @@ echo "Downloading dual PDF to $dual_path"
 echo "Done:"
 ls -lh "$mono_path" "$dual_path"
 
+echo "Copying PDFs to current working directory"
+cp "$mono_path" "$dual_path" .
+
 echo "Deleting remote artifacts for job ${job_id}"
 delete_response="$(
   "${CURL[@]}" --fail --silent --show-error \
