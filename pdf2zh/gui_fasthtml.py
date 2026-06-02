@@ -556,13 +556,22 @@ def translate_file(
         if str(k).upper().endswith("API_KEY") and str(v) == "***":
             _envs[k] = ConfigManager.get_env_by_translatername(translator, k, None)
 
-    def progress_bar(t: tqdm.tqdm):
-        desc = getattr(t, "desc", "Translating...") or "Translating..."
-        total = getattr(t, "total", 0) or 1
+    def progress_bar(event):
+        if isinstance(event, dict):
+            desc = event.get("stage") or "Translating..."
+            try:
+                completed = float(event.get("overall_progress", 0.0)) / 100.0
+            except (TypeError, ValueError):
+                completed = 0.0
+        else:
+            desc = getattr(event, "desc", "Translating...") or "Translating..."
+            total = getattr(event, "total", 0) or 1
+            completed = min(0.99, max(0.0, event.n / total))
+        completed = max(0.0, min(completed, 1.0))
         if session_id in translation_jobs:
             translation_jobs[session_id].update(
                 {
-                    "progress": min(0.99, max(0.0, t.n / total)),
+                    "progress": completed,
                     "message": desc,
                 }
             )
@@ -570,11 +579,11 @@ def translate_file(
             progress_queue.put(
                 {
                     "type": "progress",
-                    "progress": min(0.99, max(0.0, t.n / total)),
+                    "progress": completed,
                     "message": desc,
                 }
             )
-        logger.info("%s %.0f%%", desc, 100 * t.n / total)
+        logger.info("%s %.0f%%", desc, 100 * completed)
 
     try:
         threads = int(threads)
@@ -605,11 +614,17 @@ def translate_file(
             ignore_cache=ignore_cache,
             vfont=vfont,
         )
-        kernel.translate(
+        results = kernel.translate(
             request,
             callback=progress_bar,
             cancellation_event=cancellation_event_map[session_id],
         )
+        if results:
+            result = results[0]
+            if isinstance(result.mono_pdf, (str, os.PathLike)):
+                file_mono = Path(result.mono_pdf)
+            if isinstance(result.dual_pdf, (str, os.PathLike)):
+                file_dual = Path(result.dual_pdf)
     except CancelledError as exc:
         raise GuiError("Translation cancelled") from exc
     finally:
