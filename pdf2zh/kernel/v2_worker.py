@@ -41,6 +41,8 @@ def _patched_clean_json_output(self, llm_output: str) -> str:
     small LLMs (e.g. gemma4:e4b) that otherwise cause json.loads() to raise:
       - Invalid \\escape sequences (e.g. \\p in math text) → escape the backslash.
       - Missing commas between adjacent JSON objects/arrays → insert them.
+      - Trailing commas before ] or } → remove them.
+      - Preamble text before the JSON value → skip to first [ or {.
       - Extra text after a valid JSON value → truncate using raw_decode.
     """
     llm_output = llm_output.strip()
@@ -60,6 +62,12 @@ def _patched_clean_json_output(self, llm_output: str) -> str:
     # Fix missing commas between adjacent JSON objects or arrays (newline or space)
     llm_output = re.sub(r'\}(\s+)\{', r'},\1{', llm_output)
     llm_output = re.sub(r'\](\s+)\[', r'],\1[', llm_output)
+    # Remove trailing commas before closing brackets (common in small-model output)
+    llm_output = re.sub(r',(\s*[}\]])', r'\1', llm_output)
+    # Skip preamble text: advance to the first [ or { that starts the JSON value
+    json_start = re.search(r'[\[{]', llm_output)
+    if json_start and json_start.start() > 0:
+        llm_output = llm_output[json_start.start():]
     # Strip trailing extra text after the first complete JSON value
     try:
         _, end = json.JSONDecoder().raw_decode(llm_output)
