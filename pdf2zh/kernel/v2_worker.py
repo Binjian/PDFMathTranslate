@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 
@@ -33,8 +34,55 @@ def _redirect_stdout_to_stderr():
 _real_stdout = _redirect_stdout_to_stderr()
 
 
+def _patched_clean_json_output(self, llm_output: str) -> str:
+    """Drop-in replacement for babeldoc's _clean_json_output.
+
+    Extends the stock implementation with two repairs for outputs produced by
+    small LLMs (e.g. gemma4:e4b) that otherwise cause json.loads() to raise:
+      - Invalid \\escape sequences (e.g. \\p in math text) → escape the backslash.
+      - Missing commas between adjacent JSON objects/arrays → insert them.
+    """
+    llm_output = llm_output.strip()
+    if llm_output.startswith("<json>"):
+        llm_output = llm_output[6:]
+    if llm_output.endswith("</json>"):
+        llm_output = llm_output[:-7]
+    if llm_output.startswith("```json"):
+        llm_output = llm_output[7:]
+    if llm_output.startswith("```"):
+        llm_output = llm_output[3:]
+    if llm_output.endswith("```"):
+        llm_output = llm_output[:-3]
+    llm_output = llm_output.strip()
+    # Fix invalid JSON escape sequences — valid ones are: " \ / b f n r t uXXXX
+    llm_output = re.sub(r'\\(?!["\\/bfnrtu]|u[0-9a-fA-F]{4})', r'\\\\', llm_output)
+    # Fix missing commas between adjacent JSON objects or arrays
+    llm_output = re.sub(r'\}\s*\n(\s*\{)', r'},\n\1', llm_output)
+    llm_output = re.sub(r'\]\s*\n(\s*\[)', r'],\n\1', llm_output)
+    return llm_output
+
+
+def _patch_babeldoc_json_cleaning() -> None:
+    """Monkey-patch babeldoc's JSON cleaning in both LLM translation modules."""
+    try:
+        from babeldoc.format.pdf.document_il.midend import (
+            automatic_term_extractor,
+            il_translator_llm_only,
+        )
+        il_translator_llm_only.ILTranslatorLLMOnly._clean_json_output = (
+            _patched_clean_json_output
+        )
+        automatic_term_extractor.AutomaticTermExtractor._clean_json_output = (
+            _patched_clean_json_output
+        )
+    except Exception:
+        pass  # babeldoc unavailable or API changed; proceed without patch
+
+
 async def run_translation(cli_args: list[str]) -> dict:
     """Execute translation using v2's own config parsing."""
+    _patch_babeldoc_json_cleaning()
+
     # Patch sys.argv so ConfigManager.initialize_config() picks up our args
     sys.argv = ["pdf2zh_next"] + cli_args
 
