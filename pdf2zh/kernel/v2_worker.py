@@ -37,10 +37,11 @@ _real_stdout = _redirect_stdout_to_stderr()
 def _patched_clean_json_output(self, llm_output: str) -> str:
     """Drop-in replacement for babeldoc's _clean_json_output.
 
-    Extends the stock implementation with two repairs for outputs produced by
+    Extends the stock implementation with repairs for outputs produced by
     small LLMs (e.g. gemma4:e4b) that otherwise cause json.loads() to raise:
       - Invalid \\escape sequences (e.g. \\p in math text) → escape the backslash.
       - Missing commas between adjacent JSON objects/arrays → insert them.
+      - Extra text after a valid JSON value → truncate using raw_decode.
     """
     llm_output = llm_output.strip()
     if llm_output.startswith("<json>"):
@@ -56,9 +57,15 @@ def _patched_clean_json_output(self, llm_output: str) -> str:
     llm_output = llm_output.strip()
     # Fix invalid JSON escape sequences — valid ones are: " \ / b f n r t uXXXX
     llm_output = re.sub(r'\\(?!["\\/bfnrtu]|u[0-9a-fA-F]{4})', r'\\\\', llm_output)
-    # Fix missing commas between adjacent JSON objects or arrays
-    llm_output = re.sub(r'\}\s*\n(\s*\{)', r'},\n\1', llm_output)
-    llm_output = re.sub(r'\]\s*\n(\s*\[)', r'],\n\1', llm_output)
+    # Fix missing commas between adjacent JSON objects or arrays (newline or space)
+    llm_output = re.sub(r'\}(\s+)\{', r'},\1{', llm_output)
+    llm_output = re.sub(r'\](\s+)\[', r'],\1[', llm_output)
+    # Strip trailing extra text after the first complete JSON value
+    try:
+        _, end = json.JSONDecoder().raw_decode(llm_output)
+        llm_output = llm_output[:end].strip()
+    except json.JSONDecodeError:
+        pass
     return llm_output
 
 
