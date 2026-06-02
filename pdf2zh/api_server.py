@@ -502,15 +502,22 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
             ignore_cache=params["ignore_cache"],
             vfont=params["vfont"],
         )
-        kernel.translate(request, callback=_cb)
+        results = kernel.translate(request, callback=_cb)
         progress_queue.put(
             {"type": "progress", "progress": 0.99, "message": "Collecting output files..."}
         )
 
         stem = Path(params["file_path"]).stem
         out = Path(params["output_dir"])
-        mono = str(out / f"{stem}-mono.pdf")
-        dual = str(out / f"{stem}-dual.pdf")
+
+        # Use paths from the kernel result when available (precise kernel names files
+        # differently from fast kernel, e.g. {stem}.zh.mono.pdf vs {stem}-mono.pdf).
+        if results and results[0].mono_pdf and results[0].dual_pdf:
+            mono = str(results[0].mono_pdf)
+            dual = str(results[0].dual_pdf)
+        else:
+            mono = str(out / f"{stem}-mono.pdf")
+            dual = str(out / f"{stem}-dual.pdf")
 
         if not Path(mono).exists() or not Path(dual).exists():
             error_event = {"type": "error", "message": "Translation produced no output files"}
