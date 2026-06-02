@@ -111,9 +111,13 @@ def request_to_cli_args(request: Any) -> list[str]:
     service, _model = _split_service_model(service_raw)
     pages_v2 = _pages_to_v2(data.get("pages"))
 
-    # Positional: files
+    # Positional: files. The precise worker runs from the isolated v2
+    # checkout, so relative paths from the caller must cross that cwd boundary
+    # as absolute paths.
+    from pathlib import Path
+
     for f in data.get("files", []):
-        args.append(f)
+        args.append(str(Path(f).resolve()))
 
     if data.get("lang_in"):
         args.extend(["--lang-in", data["lang_in"]])
@@ -130,8 +134,6 @@ def request_to_cli_args(request: Any) -> list[str]:
 
     # Always resolve output to an absolute path to avoid cwd confusion
     # in the subprocess.  Default to input file's parent dir (v1 behavior).
-    from pathlib import Path
-
     output = data.get("output", "")
     if not output and data.get("files"):
         output = str(Path(data["files"][0]).resolve().parent)

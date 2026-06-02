@@ -169,7 +169,7 @@ class TestV2Bridge(unittest.TestCase):
             thread=8,
         )
         args = request_to_cli_args(req)
-        self.assertIn("test.pdf", args)
+        self.assertIn(str(Path("test.pdf").resolve()), args)
         self.assertIn("--lang-in", args)
         self.assertIn("en", args)
         self.assertIn("--lang-out", args)
@@ -597,6 +597,14 @@ class TestV2BridgeEndToEnd(unittest.TestCase):
 
         self.assertEqual(env["PDF2ZH_GEMINI_API_KEY"], "key123")
         self.assertEqual(env["PDF2ZH_GEMINI_MODEL"], "gemini-pro")
+
+    def test_relative_input_file_resolved_to_absolute(self):
+        from pdf2zh.kernel.v2_bridge import request_to_cli_args
+        from pdf2zh.kernel.protocol import TranslateRequest
+
+        args = request_to_cli_args(TranslateRequest(files=["pdf2zh_files/test.pdf"]))
+
+        self.assertEqual(args[0], str(Path("pdf2zh_files/test.pdf").resolve()))
 
     def test_output_defaults_to_input_parent(self):
         from pdf2zh.kernel.v2_bridge import request_to_cli_args
