@@ -19,6 +19,7 @@ from pdf2zh import __version__
 from pdf2zh.high_level import translate
 from pdf2zh.doclayout import ModelInstance
 from pdf2zh.config import ConfigManager
+from pdf2zh.gui_progress import update_gui_progress
 from pdf2zh.translator import (
     AnythingLLMTranslator,
     AzureOpenAITranslator,
@@ -50,6 +51,7 @@ from babeldoc.docvision.doclayout import OnnxModel
 from babeldoc import __version__ as babeldoc_version
 
 logger = logging.getLogger(__name__)
+
 
 
 class _LazyModel:
@@ -322,11 +324,8 @@ def translate_file(
 
     print(f"Files before translation: {os.listdir(output)}")
 
-    def progress_bar(t: tqdm.tqdm):
-        desc = getattr(t, "desc", "Translating...")
-        if desc == "":
-            desc = "Translating..."
-        progress(t.n / t.total, desc=desc)
+    def progress_bar(event: tqdm.tqdm | dict):
+        update_gui_progress(progress, event)
 
     try:
         threads = int(threads)
@@ -371,11 +370,17 @@ def translate_file(
             ignore_cache=ignore_cache,
             vfont=vfont,
         )
-        kernel.translate(
+        results = kernel.translate(
             request,
             callback=progress_bar,
             cancellation_event=cancellation_event_map[session_id],
         )
+        if results:
+            result = results[0]
+            if isinstance(result.mono_pdf, (str, os.PathLike)):
+                file_mono = Path(result.mono_pdf)
+            if isinstance(result.dual_pdf, (str, os.PathLike)):
+                file_dual = Path(result.dual_pdf)
     except CancelledError:
         del cancellation_event_map[session_id]
         raise gr.Error("Translation cancelled")

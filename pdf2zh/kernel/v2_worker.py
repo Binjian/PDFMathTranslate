@@ -83,15 +83,12 @@ async def run_translation(cli_args: list[str]) -> dict:
                     results.append(result)
 
                 elif event_type == "error":
-                    error_event = {
-                        "type": "error",
-                        "message": event.get("error", "Unknown error"),
-                    }
-                    print(json.dumps(error_event), file=sys.stderr, flush=True)
+                    raise RuntimeError(event.get("error", "Unknown error"))
 
         except Exception as e:
             error_event = {"type": "error", "message": str(e)}
             print(json.dumps(error_event), file=sys.stderr, flush=True)
+            raise
 
     elapsed = time.time() - start_time
     return {"results": results, "time_cost": elapsed}
