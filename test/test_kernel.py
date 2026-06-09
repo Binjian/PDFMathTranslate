@@ -153,6 +153,19 @@ class TestPreciseKernelVersion(unittest.TestCase):
         result = k.is_available()
         self.assertIsInstance(result, bool)
 
+    @patch("pdf2zh.kernel.precise.PreciseKernel._package_importable", return_value=False)
+    @patch("pdf2zh.kernel.precise.Path.exists", return_value=True)
+    @patch("pdf2zh.kernel.precise.Path.is_dir", return_value=True)
+    def test_is_available_requires_importable_runtime(
+        self, mock_is_dir, mock_exists, mock_package_importable
+    ):
+        from pdf2zh.kernel.precise import PreciseKernel
+
+        k = PreciseKernel()
+
+        self.assertFalse(k.is_available())
+        mock_package_importable.assert_called_once()
+
 
 class TestV2Bridge(unittest.TestCase):
     """Test v2 bridge v1 → v2 CLI args + env mapping."""

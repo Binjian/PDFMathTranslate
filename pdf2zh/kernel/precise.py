@@ -76,11 +76,12 @@ class PreciseKernel:
             return "unknown"
 
     def is_available(self) -> bool:
-        """Check if submodule exists and venv is initialized."""
+        """Check if the submodule and isolated runtime are ready."""
         return (
             _SUBMODULE_DIR.is_dir()
             and (_SUBMODULE_DIR / "pyproject.toml").exists()
             and Path(_venv_python()).exists()
+            and self._package_importable()
         )
 
     def ensure_venv(self) -> None:
@@ -118,10 +119,18 @@ class PreciseKernel:
         logger.info("Precise kernel venv ready.")
 
     def _package_importable(self) -> bool:
-        """Check if pdf2zh_next can be imported in the venv."""
+        """Check if the v2 runtime modules can be imported in the venv."""
         try:
             result = subprocess.run(
-                [_venv_python(), "-c", "import pdf2zh_next"],
+                [
+                    _venv_python(),
+                    "-c",
+                    (
+                        "import pdf2zh_next; "
+                        "from pdf2zh_next.config.main import ConfigManager; "
+                        "from pdf2zh_next.high_level import do_translate_async_stream"
+                    ),
+                ],
                 capture_output=True,
                 timeout=30,
                 cwd=str(_SUBMODULE_DIR),
