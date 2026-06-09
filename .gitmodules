@@ -1,4 +1,4 @@
 [submodule "vendor/PDFMathTranslate-next"]
 	path = pdf2zh/kernel/PDFMathTranslate-next.git
-	url = git@github.com:Binjian/PDFMathTranslate-next.git
+	url = git@gitlab.com:siasunx1/PDFMathTranslate-next.git
 	branch = fasthtml
