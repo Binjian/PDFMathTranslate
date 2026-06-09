@@ -26,9 +26,12 @@ class _FakeClient:
 
 
 class _FakeRequestsResponse:
-    def __init__(self, payload=None):
+    def __init__(self, payload=None, status_code=200, text=""):
         self._payload = payload or {}
         self.headers = {}
+        self.status_code = status_code
+        self.text = text
+        self.content = b"%PDF"
 
     def __enter__(self):
         return self
@@ -44,6 +47,14 @@ class _FakeRequestsResponse:
 
     def iter_content(self, chunk_size):
         yield b"%PDF"
+
+
+class _FakeKernel:
+    def __init__(self, available):
+        self._available = available
+
+    def is_available(self):
+        return self._available
 
 
 class _FakeRequestsSession:
@@ -219,6 +230,80 @@ class TestApiBackendClient(unittest.TestCase):
             self.assertEqual(gui_fasthtml._configured_api_base_url(), "")
 
         config_get.assert_not_called()
+
+    def test_api_rejects_unavailable_precise_mode_before_starting_job(self):
+        with (
+            patch.object(
+                api_server.KernelRegistry,
+                "get",
+                return_value=_FakeKernel(False),
+            ),
+            self.assertRaises(api_server.HTTPException) as caught,
+        ):
+            api_server._validate_mode_choice("precise")
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("pdf2zh-setup-precise", caught.exception.detail)
+
+    def test_gui_client_surfaces_api_detail_on_submit_failure(self):
+        session_id = "session-api-error"
+        gui_fasthtml.translation_jobs[session_id] = {"status": "running"}
+        detail = "Kernel 'precise' is not available on the API server."
+        responses = [
+            _FakeRequestsResponse({"status": "ok"}),
+            _FakeRequestsResponse(
+                {"detail": detail},
+                status_code=400,
+                text="bad request",
+            ),
+        ]
+
+        def fake_request(*args, **kwargs):
+            return responses.pop(0)
+
+        params = {
+            "file_type": "Link",
+            "file_input": "",
+            "link_input": "http://example.test/document.pdf",
+            "service": "Google",
+            "lang_from": "English",
+            "lang_to": "Simplified Chinese",
+            "page_range": "All",
+            "page_input": "",
+            "prompt": "",
+            "threads": 4,
+            "skip_subset_fonts": False,
+            "ignore_cache": False,
+            "vfont": "",
+            "mode_choice": "precise",
+            "env_0": "",
+            "env_1": "",
+            "env_2": "",
+            "env_3": "",
+        }
+
+        try:
+            with (
+                patch.object(gui_fasthtml, "API_BASE_URL", "http://api.test"),
+                patch.object(
+                    gui_fasthtml,
+                    "_request_api_backend",
+                    side_effect=fake_request,
+                ),
+            ):
+                gui_fasthtml._run_api_translation_job(session_id, params)
+
+            self.assertEqual(
+                gui_fasthtml.translation_jobs[session_id]["status"],
+                "error",
+            )
+            self.assertEqual(
+                gui_fasthtml.translation_jobs[session_id]["message"],
+                detail,
+            )
+            self.assertEqual(gui_fasthtml.translation_jobs[session_id]["error"], detail)
+        finally:
+            gui_fasthtml.translation_jobs.pop(session_id, None)
 
 
 if __name__ == "__main__":

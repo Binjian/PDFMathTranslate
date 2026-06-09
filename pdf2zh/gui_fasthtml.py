@@ -696,6 +696,15 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             }
         )
 
+    def _api_error_message(resp) -> str:
+        try:
+            detail = resp.json().get("detail")
+        except Exception:
+            detail = None
+        if detail:
+            return str(detail)
+        return f"API returned HTTP {resp.status_code}: {resp.text}"
+
     # ── Preflight: verify the API server is reachable before uploading ────
     try:
         _request_api_backend(
@@ -755,7 +764,7 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             )
 
         if resp.status_code != 202:
-            raise RuntimeError(f"API returned HTTP {resp.status_code}: {resp.text}")
+            raise RuntimeError(_api_error_message(resp))
 
         api_job_id: str = resp.json()["job_id"]
         translation_jobs[session_id]["api_job_id"] = api_job_id

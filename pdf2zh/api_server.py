@@ -33,6 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from pdf2zh.config import ConfigManager
+from pdf2zh.kernel import KernelRegistry
 from pdf2zh.translator import (
     AnythingLLMTranslator,
     ArgosTranslator,
@@ -120,6 +121,12 @@ PAGE_MAP: dict[str, Optional[list[int]]] = {
 
 _jobs: dict[str, dict] = {}
 _job_log_lock = threading.Lock()
+_MODE_SETUP_HINTS = {
+    "precise": (
+        "Kernel 'precise' is not available on the API server. "
+        "Initialize the v2 submodule and run pdf2zh-setup-precise on the API host."
+    )
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -132,6 +139,27 @@ def _client_ip(request: Request) -> str:
     if real_ip:
         return real_ip
     return request.client.host if request.client else ""
+
+
+def _validate_mode_choice(mode_choice: str) -> str:
+    mode = (mode_choice or "fast").strip().lower()
+    try:
+        kernel = KernelRegistry.get(mode)
+    except KeyError as exc:
+        raise HTTPException(
+            400,
+            f"Unknown mode_choice '{mode_choice}'. Valid values: fast, precise",
+        ) from exc
+
+    if not kernel.is_available():
+        raise HTTPException(
+            400,
+            _MODE_SETUP_HINTS.get(
+                mode,
+                f"Kernel '{mode}' is not available on the API server.",
+            ),
+        )
+    return mode
 
 
 def _job_log_cell(value) -> str:
@@ -710,6 +738,8 @@ async def create_translate_job(
     Returns 202 Accepted with ``{"job_id": "<uuid>"}`` immediately.
     Poll ``GET /v1/translate/{job_id}`` for status.
     """
+    mode_choice = _validate_mode_choice(mode_choice)
+
     if service not in SERVICE_MAP:
         raise HTTPException(400, f"Unknown service '{service}'. "
                             f"Valid values: {sorted(SERVICE_MAP)}")
