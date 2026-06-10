@@ -209,10 +209,21 @@ Please refer to the test script in [test/test_translate_service.sh](../test/test
 
 **Supported service names:**
 
-`Google`, `Bing`, `DeepL`, `DeepLX`, `Ollama`, `Xinference`, `AzureOpenAI`,
-`OpenAI`, `Zhipu`, `ModelScope`, `Silicon`, `Gemini`, `Azure`, `Tencent`,
-`Dify`, `AnythingLLM`, `Argos Translate`, `Grok`, `Groq`, `DeepSeek`,
-`MiniMax`, `OpenAI-liked`, `Ali Qwen-Translation`, `302.AI`
+- `Ollama`
+  - qwen3.6-latest
+
+- `OpenAI-liked` (Qwen@Aliyun)
+  - qwen3.6-flash
+  - qwen3.6-plus
+
+**Supported translation:**
+
+- English->Chinese
+- Chinese->English
+
+**Supported Mode:**
+- `fast`
+- `precise`
 
 **Language display names:**
 
