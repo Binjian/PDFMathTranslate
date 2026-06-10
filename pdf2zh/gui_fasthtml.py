@@ -947,6 +947,7 @@ def _ollama_host_input(name: str, value: str | None, ui_lang: str):
             hx_get="/ollama-models",
             hx_trigger="change delay:300ms",
             hx_target="#ollama-model-field",
+            hx_swap="outerHTML",
             hx_include="[name='env_0'],[name='env_1']",
         ),
         Select(
@@ -1859,6 +1860,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                     name="service",
                     hx_get="/service-fields",
                     hx_target="#env-fields",
+                    hx_swap="outerHTML",
                     hx_trigger="change",
                     hx_include="[name='service'],[name='ui_lang']",
                 ),

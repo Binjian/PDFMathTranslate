@@ -223,6 +223,22 @@ class TestApiBackendClient(unittest.TestCase):
             fields = gui_fasthtml._service_env_fields("Ollama").__html__()
 
         self.assertIn('value="http://172.27.74.49:11434"', fields)
+        self.assertIn('hx_swap="outerHTML"', fields)
+
+    def test_gui_openailiked_fields_do_not_render_ollama_widgets(self):
+        fields = gui_fasthtml._service_env_fields("OpenAI-liked").__html__()
+
+        self.assertIn("OPENAILIKED_BASE_URL", fields)
+        self.assertNotIn("OLLAMA_HOST", fields)
+        self.assertNotIn('id="ollama-model-field"', fields)
+
+    def test_index_service_switch_replaces_env_fields_node(self):
+        with patch.object(gui_fasthtml, "_authorized", return_value=None):
+            app = gui_fasthtml.setup_gui()
+            index_html = app.routes["/"](None).__html__()
+
+        self.assertIn('hx_target="#env-fields"', index_html)
+        self.assertIn('hx_swap="outerHTML"', index_html)
 
     def test_environment_url_overrides_persisted_api_url(self):
         with (
