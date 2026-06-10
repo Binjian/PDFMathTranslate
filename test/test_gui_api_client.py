@@ -26,9 +26,9 @@ class _FakeClient:
 
 
 class _FakeRequestsResponse:
-    def __init__(self, payload=None, status_code=200, text=""):
+    def __init__(self, payload=None, status_code=200, text="", headers=None):
         self._payload = payload or {}
-        self.headers = {}
+        self.headers = headers or {}
         self.status_code = status_code
         self.text = text
         self.content = b"%PDF"
@@ -124,6 +124,27 @@ class TestApiBackendClient(unittest.TestCase):
             [call[0] for call in _FakeRequestsSession.calls],
             ["GET", "POST", "GET"],
         )
+
+    def test_download_with_limit_uses_content_disposition_filename(self):
+        class _DownloadSession(_FakeRequestsSession):
+            def get(self, url, **kwargs):
+                self.calls.append(("GET", url, kwargs, self.trust_env))
+                return _FakeRequestsResponse(
+                    headers={
+                        "Content-Disposition": 'attachment; filename="paper.txt"'
+                    }
+                )
+
+        with (
+            patch.object(gui_fasthtml, "API_BASE_URL", ""),
+            patch.object(gui_fasthtml.requests, "Session", _DownloadSession),
+        ):
+            with TemporaryDirectory() as temp_dir:
+                output = gui_fasthtml.download_with_limit(
+                    "http://172.27.74.49/document.pdf", Path(temp_dir), None
+                )
+
+        self.assertEqual(output.name, "paper.pdf")
 
     def test_api_mode_queries_ollama_models_through_backend(self):
         response = _FakeRequestsResponse({"models": ["qwen3.6:latest"]})

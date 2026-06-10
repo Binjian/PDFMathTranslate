@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import cgi
 import json
 import logging
 import multiprocessing
@@ -13,6 +12,7 @@ import time
 import uuid
 import webbrowser
 from asyncio import CancelledError
+from email.message import Message
 from pathlib import Path
 from urllib.parse import quote
 import typing as T
@@ -410,6 +410,14 @@ def verify_recaptcha(response):
     return result.get("success")
 
 
+def _content_disposition_filename(content: str | None) -> str | None:
+    if not content:
+        return None
+    message = Message()
+    message["content-disposition"] = content
+    return message.get_filename()
+
+
 def download_with_limit(url: str, save_path: Path, size_limit: int | None) -> Path:
     chunk_size = 1024
     total_size = 0
@@ -418,8 +426,9 @@ def download_with_limit(url: str, save_path: Path, size_limit: int | None) -> Pa
             response.raise_for_status()
             content = response.headers.get("Content-Disposition")
             try:
-                _, params = cgi.parse_header(content)
-                filename = params["filename"]
+                filename = _content_disposition_filename(content)
+                if not filename:
+                    raise ValueError("filename not found")
             except Exception:
                 filename = os.path.basename(url)
             filename = os.path.splitext(os.path.basename(filename))[0] + ".pdf"

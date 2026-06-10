@@ -93,6 +93,11 @@ max-line-length = 88
 norecursedirs = [
     "pdf2zh/kernel/PDFMathTranslate-next.git",
 ]
+filterwarnings = [
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+]
 
 
 
