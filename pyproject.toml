@@ -41,6 +41,7 @@ dependencies = [
     "rich",
     "fastapi>=0.136.3",
     "python-dotenv>=1.2.2",
+    "pytest>=9.0.3",
 ]
 
 [project.optional-dependencies]
