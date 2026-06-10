@@ -574,10 +574,16 @@ def translate_file(
     for i, env in enumerate(translator.envs.items()):
         _envs[env[0]] = envs[i] if i < len(envs) else env[1]
     for k, v in _envs.items():
+        if v in (None, ""):
+            override = _env_override(service, k)
+            if override is not None:
+                _envs[k] = override
         if k == "OLLAMA_HOST" and v:
             _envs[k] = _normalize_ollama_host(str(v))
         if str(k).upper().endswith("API_KEY") and str(v) == "***":
-            _envs[k] = ConfigManager.get_env_by_translatername(translator, k, None)
+            _envs[k] = _env_override(service, k) or ConfigManager.get_env_by_translatername(
+                translator, k, None
+            )
 
     def progress_bar(event):
         if isinstance(event, dict):
@@ -1000,7 +1006,7 @@ def _checkbox(label: str, name: str, checked: bool = False):
     return Label(Input(type="checkbox", name=name, value="true", checked=checked), label)
 
 
-def _default_env_value(service: str, label: str, fallback):
+def _env_override(service: str, label: str):
     env_value = os.environ.get(label)
     if env_value not in (None, ""):
         return env_value
@@ -1010,7 +1016,7 @@ def _default_env_value(service: str, label: str, fallback):
             alias_value = os.environ.get(alias)
             if alias_value not in (None, ""):
                 return alias_value
-    return fallback
+    return None
 
 
 def _service_env_fields(
@@ -1028,17 +1034,18 @@ def _service_env_fields(
     env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
-        default_value = _default_env_value(service, label, env[1])
-        try:
-            configured_value = ConfigManager.get_env_by_translatername(
-                translator,
-                env[0],
-                default_value,
-            )
-        except (KeyError, TypeError):
-            configured_value = default_value
-        if service == "Ollama":
-            configured_value = os.environ.get(label, configured_value)
+        # Values from the environment (.env / shell) take precedence over
+        # whatever set_envs() persisted into config.json earlier.
+        configured_value = _env_override(service, label)
+        if configured_value is None:
+            try:
+                configured_value = ConfigManager.get_env_by_translatername(
+                    translator,
+                    label,
+                    env[1],
+                )
+            except (KeyError, TypeError):
+                configured_value = env[1]
         value = env_overrides.get(f"env_{i}", configured_value)
         env_values[label] = value
         input_type = "password" if "API_KEY" in label.upper() else "text"
