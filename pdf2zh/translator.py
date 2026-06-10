@@ -1214,6 +1214,8 @@ class OpenAIlikedTranslator(OpenAITranslator):
             self.envs["OPENAILIKED_BASE_URL"] = os.getenv("DASHSCOPE_API_URL") or None
         if not self.envs["OPENAILIKED_API_KEY"]:
             self.envs["OPENAILIKED_API_KEY"] = os.getenv("DASHSCOPE_API_KEY") or None
+        if not self.envs["OPENAILIKED_MODEL"]:
+            self.envs["OPENAILIKED_MODEL"] = os.getenv("DASHSCOPE_API_MODEL_FLASH") or None
         if self.envs["OPENAILIKED_BASE_URL"]:
             base_url = self.envs["OPENAILIKED_BASE_URL"]
         else:
