@@ -23,6 +23,7 @@ import httpx
 import requests
 from starlette.datastructures import UploadFile
 from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.staticfiles import StaticFiles
 import tqdm
 
 from pdf2zh import __version__
@@ -2330,10 +2331,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
   <div id="status">Loading PDF...</div>
   <main id="viewer" data-facing="{str(facing).lower()}"></main>
   <script type="module">
-    import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs";
+    import * as pdfjsLib from "/pdfjs/pdf.mjs";
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.mjs";
 
     const pdfUrl = {json.dumps(pdf_url)};
     const viewer = document.getElementById("viewer");
@@ -2385,6 +2385,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 </body>
 </html>"""
         return Response(html, media_type="text/html")
+
+    _pdfjs_dir = Path(__file__).parent / "static" / "pdfjs"
+    app.mount("/pdfjs", StaticFiles(directory=str(_pdfjs_dir)), name="pdfjs")
 
     return app
 
