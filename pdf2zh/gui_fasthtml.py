@@ -377,6 +377,11 @@ OPENAILIKED_ENV_FALLBACKS = {
     "OPENAILIKED_MODEL": "DASHSCOPE_API_MODEL_FLASH",
 }
 
+# Credentials resolved exclusively on the backend from its local .env:
+# never rendered in the UI, never sent over the REST API, never persisted
+# in saved GUI settings.
+OPENAILIKED_BACKEND_ONLY_ENVS = ("OPENAILIKED_BASE_URL", "OPENAILIKED_API_KEY")
+
 
 def _normalize_ollama_host(host: str | None) -> str:
     host = (host or "").strip()
@@ -574,6 +579,11 @@ def translate_file(
     for i, env in enumerate(translator.envs.items()):
         _envs[env[0]] = envs[i] if i < len(envs) else env[1]
     for k, v in _envs.items():
+        if service == "OpenAI-liked" and k in OPENAILIKED_BACKEND_ONLY_ENVS:
+            # Backend-only credentials: ignore whatever the form submitted
+            # and resolve from the local environment (.env).
+            _envs[k] = _env_override(service, k)
+            continue
         if v in (None, ""):
             override = _env_override(service, k)
             if override is not None:
@@ -768,6 +778,12 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             for i in range(MAX_ENV_FIELDS)
         },
     }
+    if params["service"] == "OpenAI-liked":
+        # Backend-only credentials are never transmitted; the API server
+        # resolves them from its own .env.
+        for i, env_name in enumerate(service_map["OpenAI-liked"].envs or {}):
+            if env_name in OPENAILIKED_BACKEND_ONLY_ENVS:
+                form_data[f"env_{i}"] = ""
 
     try:
         if params["file_type"] == "File" and params.get("file_input"):
@@ -1045,6 +1061,10 @@ def _service_env_fields(
     env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
+        if service == "OpenAI-liked" and label in OPENAILIKED_BACKEND_ONLY_ENVS:
+            # Keep the empty hidden input at this index so env_i positions
+            # stay aligned; the backend resolves the value from its .env.
+            continue
         # Values from the environment (.env / shell) take precedence over
         # whatever set_envs() persisted into config.json earlier.
         configured_value = _env_override(service, label)
@@ -1299,6 +1319,8 @@ def _run_settings(params: dict[str, T.Any], ui_lang: str) -> list[tuple[str, str
         for i, env_name in enumerate(translator.envs.keys()):
             if str(env_name).upper().endswith("API_KEY"):
                 continue
+            if env_name in OPENAILIKED_BACKEND_ONLY_ENVS:
+                continue
             value = str(params.get(f"env_{i}") or "").strip()
             if value:
                 rows.append((env_name, value))
@@ -1345,6 +1367,8 @@ def _sanitize_saved_params(params: dict[str, T.Any]) -> dict[str, T.Any]:
     if translator:
         for i, env_name in enumerate(translator.envs.keys()):
             if str(env_name).upper().endswith("API_KEY"):
+                continue
+            if env_name in OPENAILIKED_BACKEND_ONLY_ENVS:
                 continue
             saved[f"env_{i}"] = params.get(f"env_{i}", "")
     return saved

@@ -228,11 +228,11 @@ class TestApiBackendClient(unittest.TestCase):
     def test_gui_openailiked_fields_do_not_render_ollama_widgets(self):
         fields = gui_fasthtml._service_env_fields("OpenAI-liked").__html__()
 
-        self.assertIn("OPENAILIKED_BASE_URL", fields)
+        self.assertIn("OPENAILIKED_MODEL", fields)
         self.assertNotIn("OLLAMA_HOST", fields)
         self.assertNotIn('id="ollama-model-field"', fields)
 
-    def test_gui_openailiked_fields_use_openailiked_env_defaults(self):
+    def test_gui_openailiked_fields_hide_backend_only_credentials(self):
         with patch.dict(
             os.environ,
             {
@@ -244,11 +244,16 @@ class TestApiBackendClient(unittest.TestCase):
         ):
             fields = gui_fasthtml._service_env_fields("OpenAI-liked").__html__()
 
-        self.assertIn('value="https://api.example.com/v1"', fields)
-        self.assertIn('value="env-key"', fields)
+        self.assertNotIn("OPENAILIKED_BASE_URL", fields)
+        self.assertNotIn("OPENAILIKED_API_KEY", fields)
+        self.assertNotIn("https://api.example.com/v1", fields)
+        self.assertNotIn("env-key", fields)
         self.assertIn('value="env-model"', fields)
+        # env_0/env_1 stay as empty hidden inputs so indices remain aligned.
+        self.assertIn('name="env_0" value=""', fields)
+        self.assertIn('name="env_1" value=""', fields)
 
-    def test_gui_openailiked_fields_use_dashscope_env_defaults(self):
+    def test_gui_openailiked_fields_never_expose_dashscope_credentials(self):
         with patch.dict(
             os.environ,
             {
@@ -263,12 +268,37 @@ class TestApiBackendClient(unittest.TestCase):
         ):
             fields = gui_fasthtml._service_env_fields("OpenAI-liked").__html__()
 
-        self.assertIn(
-            'value="https://dashscope.aliyuncs.com/compatible-mode/v1"',
+        self.assertNotIn(
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
             fields,
         )
-        self.assertIn('value="dashscope-key"', fields)
+        self.assertNotIn("dashscope-key", fields)
         self.assertIn('value="qwen-plus-latest"', fields)
+
+    def test_api_openailiked_envs_resolved_from_server_environment(self):
+        submitted = [
+            "https://attacker.example.com/v1",
+            "client-supplied-key",
+            "client-model",
+        ]
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAILIKED_BASE_URL": "",
+                "OPENAILIKED_API_KEY": "",
+                "DASHSCOPE_API_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "DASHSCOPE_API_KEY": "dashscope-key",
+            },
+            clear=False,
+        ):
+            envs = api_server._resolve_translator_envs("OpenAI-liked", submitted)
+
+        self.assertEqual(
+            envs["OPENAILIKED_BASE_URL"],
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        self.assertEqual(envs["OPENAILIKED_API_KEY"], "dashscope-key")
+        self.assertEqual(envs["OPENAILIKED_MODEL"], "client-model")
 
     def test_index_service_switch_replaces_env_fields_node(self):
         from starlette.testclient import TestClient

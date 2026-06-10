@@ -379,6 +379,14 @@ def _normalize_ollama_host(host: str) -> str:
     return host.rstrip("/")
 
 
+# OpenAI-liked credentials are backend-only: whatever a client submits is
+# discarded and the value is resolved from this server's environment (.env).
+OPENAILIKED_BACKEND_ONLY_ENVS = {
+    "OPENAILIKED_BASE_URL": "DASHSCOPE_API_URL",
+    "OPENAILIKED_API_KEY": "DASHSCOPE_API_KEY",
+}
+
+
 def _resolve_translator_envs(
     service: str, submitted: list[str]
 ) -> dict[str, str | None]:
@@ -393,6 +401,9 @@ def _resolve_translator_envs(
     for key, value in envs.items():
         if key.upper().endswith("API_KEY") and value == "***":
             envs[key] = ConfigManager.get_env_by_translatername(translator, key, None)
+    for key, alias in OPENAILIKED_BACKEND_ONLY_ENVS.items():
+        if key in envs:
+            envs[key] = os.environ.get(key) or os.environ.get(alias) or None
     return envs
 
 
