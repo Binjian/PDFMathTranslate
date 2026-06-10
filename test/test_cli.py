@@ -1,5 +1,8 @@
 import importlib
+import importlib.util
+import os
 import sys
+import tempfile
 import unittest
 
 
@@ -18,6 +21,31 @@ class TestCliVersion(unittest.TestCase):
 
         self.assertEqual(pkg.__version__, "1.9.11")
         self.assertNotIn("pdf2zh.high_level", sys.modules)
+
+    def test_importing_package_loads_dotenv_into_environment(self):
+        if importlib.util.find_spec("dotenv") is None:
+            self.skipTest("python-dotenv is not installed in this environment")
+
+        original_cwd = os.getcwd()
+        original_value = os.environ.pop("PDF2ZH_TEST_DOTENV", None)
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                os.chdir(temp_dir)
+                with open(".env", "w", encoding="utf-8") as handle:
+                    handle.write("PDF2ZH_TEST_DOTENV=loaded-from-dotenv\n")
+
+                importlib.import_module("pdf2zh")
+
+                self.assertEqual(
+                    os.environ.get("PDF2ZH_TEST_DOTENV"), "loaded-from-dotenv"
+                )
+        finally:
+            os.chdir(original_cwd)
+            if original_value is None:
+                os.environ.pop("PDF2ZH_TEST_DOTENV", None)
+            else:
+                os.environ["PDF2ZH_TEST_DOTENV"] = original_value
 
     def test_version_flag_exits_before_loading_heavy_modules(self):
         cli = importlib.import_module("pdf2zh.pdf2zh")

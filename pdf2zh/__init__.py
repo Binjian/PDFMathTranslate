@@ -2,6 +2,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
+try:
+    from dotenv import find_dotenv, load_dotenv
+except ModuleNotFoundError:
+    load_dotenv = None
+else:
+    load_dotenv(find_dotenv(usecwd=True), override=False)
+
 __version__ = "1.9.11"
 __author__ = "Byaidu"
 __all__ = ["translate", "translate_stream"]

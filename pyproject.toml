@@ -40,6 +40,7 @@ dependencies = [
     "babeldoc>=0.1.22, <0.3.0",
     "rich",
     "fastapi>=0.136.3",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.optional-dependencies]
