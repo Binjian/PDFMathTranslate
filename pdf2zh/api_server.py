@@ -728,10 +728,6 @@ async def create_translate_job(
     ignore_cache: Annotated[bool, Form()] = False,
     vfont: Annotated[str, Form()] = "",
     mode_choice: Annotated[str, Form()] = "fast",
-    env_0: Annotated[str, Form()] = "",
-    env_1: Annotated[str, Form()] = "",
-    env_2: Annotated[str, Form()] = "",
-    env_3: Annotated[str, Form()] = "",
 ) -> dict:
     """Submit a translation job.
 
@@ -745,7 +741,13 @@ async def create_translate_job(
                             f"Valid values: {sorted(SERVICE_MAP)}")
 
     translator = SERVICE_MAP[service]
-    envs = _resolve_translator_envs(service, [env_0, env_1, env_2, env_3])
+    # Translator settings arrive as env_0..env_N form fields; the count varies
+    # per translator, so collect them dynamically instead of fixed parameters.
+    form = await request.form()
+    submitted_envs: list[str] = []
+    while (value := form.get(f"env_{len(submitted_envs)}")) is not None:
+        submitted_envs.append(str(value))
+    envs = _resolve_translator_envs(service, submitted_envs)
     if service == "Ollama":
         _validate_ollama_envs(envs)
         logger.info(

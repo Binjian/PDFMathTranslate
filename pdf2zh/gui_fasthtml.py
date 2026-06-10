@@ -174,6 +174,13 @@ if ConfigManager.get("PDF2ZH_DEMO"):
     client_key = ConfigManager.get("PDF2ZH_CLIENT_KEY")
     server_key = ConfigManager.get("PDF2ZH_SERVER_KEY")
 
+# Env form fields are named env_0..env_{N-1}; N must cover the translator with
+# the most envs (e.g. OpenAI has 6) so no field is dropped on render or submit.
+MAX_ENV_FIELDS = max(
+    (len(translator.envs or {}) for translator in service_map.values()),
+    default=0,
+)
+
 enabled_services: T.Optional[T.List[str]] = ConfigManager.get("ENABLED_SERVICES")
 if isinstance(enabled_services, list):
     default_services = ["Google", "Bing"]
@@ -664,10 +671,7 @@ def _translate_file_process(params: dict, progress_queue) -> None:
             params["mode_choice"],
             params["recaptcha_response"],
             params["session_id"],
-            params["env_0"],
-            params["env_1"],
-            params["env_2"],
-            params["env_3"],
+            *[params.get(f"env_{i}", "") for i in range(MAX_ENV_FIELDS)],
             progress_queue=progress_queue,
         )
         progress_queue.put({"type": "done", "mono": mono, "dual": dual})
@@ -747,10 +751,10 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         "ignore_cache": str(params["ignore_cache"]),
         "vfont": params["vfont"],
         "mode_choice": params["mode_choice"],
-        "env_0": params["env_0"],
-        "env_1": params["env_1"],
-        "env_2": params["env_2"],
-        "env_3": params["env_3"],
+        **{
+            f"env_{i}": params.get(f"env_{i}", "")
+            for i in range(MAX_ENV_FIELDS)
+        },
     }
 
     try:
@@ -997,7 +1001,10 @@ def _service_env_fields(
 ):
     env_overrides = env_overrides or {}
     translator = service_map[service]
-    fields = [Input(type="hidden", name=f"env_{i}", value="") for i in range(4)]
+    fields = [
+        Input(type="hidden", name=f"env_{i}", value="")
+        for i in range(MAX_ENV_FIELDS)
+    ]
     env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
@@ -1625,7 +1632,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         )
         env_overrides = {
             f"env_{i}": str(seed_params.get(f"env_{i}") or "")
-            for i in range(4)
+            for i in range(MAX_ENV_FIELDS)
             if seed_params.get(f"env_{i}")
         }
         settings_query = f"&settings_from={quote(settings_from)}" if seed_job else ""
@@ -2082,10 +2089,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             "mode_choice": form.get("mode_choice", "fast"),
             "recaptcha_response": form.get("recaptcha_response", ""),
             "session_id": session_id,
-            "env_0": form.get("env_0", ""),
-            "env_1": form.get("env_1", ""),
-            "env_2": form.get("env_2", ""),
-            "env_3": form.get("env_3", ""),
+            **{
+                f"env_{i}": form.get(f"env_{i}", "")
+                for i in range(MAX_ENV_FIELDS)
+            },
         }
         translation_jobs[session_id]["params"] = dict(params)
         translation_jobs[session_id]["settings"] = _run_settings(params, ui_lang)
