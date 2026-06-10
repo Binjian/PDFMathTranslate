@@ -371,6 +371,12 @@ OLLAMA_HOST_OPTIONS = [
     "172.27.74.49:11434",
 ]
 
+OPENAILIKED_ENV_FALLBACKS = {
+    "OPENAILIKED_BASE_URL": "DASHSCOPE_API_URL",
+    "OPENAILIKED_API_KEY": "DASHSCOPE_API_KEY",
+    "OPENAILIKED_MODEL": "DASHSCOPE_API_MODEL_FLASH",
+}
+
 
 def _normalize_ollama_host(host: str | None) -> str:
     host = (host or "").strip()
@@ -994,6 +1000,19 @@ def _checkbox(label: str, name: str, checked: bool = False):
     return Label(Input(type="checkbox", name=name, value="true", checked=checked), label)
 
 
+def _default_env_value(service: str, label: str, fallback):
+    env_value = os.environ.get(label)
+    if env_value not in (None, ""):
+        return env_value
+    if service == "OpenAI-liked":
+        alias = OPENAILIKED_ENV_FALLBACKS.get(label)
+        if alias:
+            alias_value = os.environ.get(alias)
+            if alias_value not in (None, ""):
+                return alias_value
+    return fallback
+
+
 def _service_env_fields(
     service: str,
     ui_lang: str = "zh",
@@ -1009,14 +1028,15 @@ def _service_env_fields(
     env_values: dict[str, str] = {}
     for i, env in enumerate(translator.envs.items()):
         label = env[0]
+        default_value = _default_env_value(service, label, env[1])
         try:
             configured_value = ConfigManager.get_env_by_translatername(
                 translator,
                 env[0],
-                env[1],
+                default_value,
             )
         except (KeyError, TypeError):
-            configured_value = env[1]
+            configured_value = default_value
         if service == "Ollama":
             configured_value = os.environ.get(label, configured_value)
         value = env_overrides.get(f"env_{i}", configured_value)

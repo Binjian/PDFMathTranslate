@@ -232,6 +232,44 @@ class TestApiBackendClient(unittest.TestCase):
         self.assertNotIn("OLLAMA_HOST", fields)
         self.assertNotIn('id="ollama-model-field"', fields)
 
+    def test_gui_openailiked_fields_use_openailiked_env_defaults(self):
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAILIKED_BASE_URL": "https://api.example.com/v1",
+                "OPENAILIKED_API_KEY": "env-key",
+                "OPENAILIKED_MODEL": "env-model",
+            },
+            clear=False,
+        ):
+            fields = gui_fasthtml._service_env_fields("OpenAI-liked").__html__()
+
+        self.assertIn('value="https://api.example.com/v1"', fields)
+        self.assertIn('value="env-key"', fields)
+        self.assertIn('value="env-model"', fields)
+
+    def test_gui_openailiked_fields_use_dashscope_env_defaults(self):
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAILIKED_BASE_URL": "",
+                "OPENAILIKED_API_KEY": "",
+                "OPENAILIKED_MODEL": "",
+                "DASHSCOPE_API_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "DASHSCOPE_API_KEY": "dashscope-key",
+                "DASHSCOPE_API_MODEL_FLASH": "qwen-plus-latest",
+            },
+            clear=False,
+        ):
+            fields = gui_fasthtml._service_env_fields("OpenAI-liked").__html__()
+
+        self.assertIn(
+            'value="https://dashscope.aliyuncs.com/compatible-mode/v1"',
+            fields,
+        )
+        self.assertIn('value="dashscope-key"', fields)
+        self.assertIn('value="qwen-plus-latest"', fields)
+
     def test_index_service_switch_replaces_env_fields_node(self):
         with patch.object(gui_fasthtml, "_authorized", return_value=None):
             app = gui_fasthtml.setup_gui()
