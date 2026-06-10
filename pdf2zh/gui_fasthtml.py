@@ -1939,16 +1939,24 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 Select(
                     *_page_options(ui_lang, page_range),
                     name="page_range",
+                    onchange=(
+                        "document.getElementById('page-input-field').style.display="
+                        "this.value==='Others'?'':'none';"
+                    ),
                 ),
             ),
-            _field(
-                _t(ui_lang, "page_range"),
-                Input(
-                    type="text",
-                    name="page_input",
-                    value=str(seed_params.get("page_input") or ""),
-                    placeholder="1,3,5-7",
+            Div(
+                _field(
+                    _t(ui_lang, "page_range"),
+                    Input(
+                        type="text",
+                        name="page_input",
+                        value=str(seed_params.get("page_input") or ""),
+                        placeholder="1,3,5-7",
+                    ),
                 ),
+                id="page-input-field",
+                style="" if page_range == "Others" else "display:none",
             ),
             Details(
                 Summary(_t(ui_lang, "experimental_options")),
