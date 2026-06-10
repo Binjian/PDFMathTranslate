@@ -241,6 +241,15 @@ def _format_llm_duration_ns(nanoseconds: int | float | None) -> str:
     return _format_elapsed_time(seconds)
 
 
+def _llm_generated_tokens(usage: dict | None) -> int | None:
+    if not usage:
+        return None
+    try:
+        return int(usage.get("eval_count") or usage.get("completion_tokens") or 0)
+    except (TypeError, ValueError):
+        return None
+
+
 def _format_llm_usage(usage: dict | None) -> str:
     if not usage:
         return ""
@@ -283,6 +292,26 @@ def _format_llm_usage(usage: dict | None) -> str:
     return "; ".join(parts)
 
 
+def _format_llm_duration(usage: dict | None) -> str:
+    if not usage:
+        return ""
+    total_duration = _format_llm_duration_ns(usage.get("total_duration"))
+    if total_duration:
+        return total_duration
+    try:
+        request_duration = float(usage.get("request_duration") or 0)
+    except (TypeError, ValueError):
+        return ""
+    return _format_elapsed_time(request_duration) if request_duration > 0 else ""
+
+
+def _format_llm_generated_tokens(usage: dict | None) -> str:
+    generated_tokens = _llm_generated_tokens(usage)
+    if generated_tokens is None:
+        return ""
+    return f"{generated_tokens:,}"
+
+
 def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     """Append a human-readable Markdown table row for a job event."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -295,13 +324,15 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
         ", ".join(_job_file_names(job)),
         _format_elapsed_time(elapsed),
         _format_llm_usage(job.get("llm_usage")),
+        _format_llm_duration(job.get("llm_usage")),
+        _format_llm_generated_tokens(job.get("llm_usage")),
         response,
     ]
     try:
         with _job_log_lock:
             JOB_LOG.parent.mkdir(parents=True, exist_ok=True)
-            header = "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_usage | response |\n"
-            separator = "|---|---|---|---|---|---:|---|---|\n"
+            header = "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_usage | llm_duration | generated_tokens | response |\n"
+            separator = "|---|---|---|---|---|---:|---|---:|---:|---|\n"
             old_tables = (
                 (
                     "| timestamp | job_id | service | files | response |\n",
@@ -318,6 +349,14 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                 (
                     "| timestamp | job_id | service | files | elapsed_time | llm_usage | response |\n",
                     "|---|---|---|---|---:|---|---|\n",
+                ),
+                (
+                    "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_usage | response |\n",
+                    "|---|---|---|---|---|---:|---|---|\n",
+                ),
+                (
+                    "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_duration | generated_tokens | response |\n",
+                    "|---|---|---|---|---|---:|---:|---:|---|\n",
                 ),
             )
             if JOB_LOG.exists() and JOB_LOG.stat().st_size > 0:
@@ -338,13 +377,24 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                             parts.insert(2, "")
                             parts.insert(5, "")
                             parts.insert(6, "")
+                            parts.insert(7, "")
+                            parts.insert(8, "")
                             line = " | ".join(parts)
                         elif len(parts) == 6:
                             parts.insert(2, "")
                             parts.insert(6, "")
+                            parts.insert(7, "")
+                            parts.insert(8, "")
                             line = " | ".join(parts)
                         elif len(parts) == 7:
                             parts.insert(2, "")
+                            parts[7:7] = ["", ""]
+                            line = " | ".join(parts)
+                        elif len(parts) == 8:
+                            parts[7:7] = ["", ""]
+                            line = " | ".join(parts)
+                        elif len(parts) == 9:
+                            parts.insert(6, "")
                             line = " | ".join(parts)
                         migrated.append(line)
                     JOB_LOG.write_text("\n".join(migrated) + "\n", encoding="utf-8")
