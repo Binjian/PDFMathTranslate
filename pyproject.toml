@@ -89,6 +89,11 @@ pdf2zh-setup-precise = "pdf2zh.kernel.precise:setup_precise_cli"
 ignore = ["E203", "E261", "E501", "W503", "E741"]
 max-line-length = 88
 
+[tool.pytest.ini_options]
+norecursedirs = [
+    "pdf2zh/kernel/PDFMathTranslate-next.git",
+]
+
 
 
 [bumpver]
