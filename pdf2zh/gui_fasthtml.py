@@ -1019,6 +1019,17 @@ def _env_override(service: str, label: str):
     return None
 
 
+def _dashscope_model_options(current: str | None = None) -> list[str]:
+    choices = [
+        value
+        for key, value in sorted(os.environ.items())
+        if key.startswith("DASHSCOPE_API_MODEL") and value
+    ]
+    if current and current not in choices:
+        choices.insert(0, current)
+    return choices
+
+
 def _service_env_fields(
     service: str,
     ui_lang: str = "zh",
@@ -1063,13 +1074,21 @@ def _service_env_fields(
             )
             fields[i] = Div(_field(label, child), id="ollama-model-field")
             continue
-        else:
-            child = Input(
-                type=input_type,
-                name=f"env_{i}",
-                value=value or "",
-                autocomplete="off",
-            )
+        if service == "OpenAI-liked" and label == "OPENAILIKED_MODEL":
+            choices = _dashscope_model_options(value)
+            if choices:
+                child = Select(
+                    *[_value_option(choice, choice, value) for choice in choices],
+                    name=f"env_{i}",
+                )
+                fields[i] = _field(label, child)
+                continue
+        child = Input(
+            type=input_type,
+            name=f"env_{i}",
+            value=value or "",
+            autocomplete="off",
+        )
         fields[i] = _field(label, child)
     if translator.CustomPrompt:
         fields.append(
