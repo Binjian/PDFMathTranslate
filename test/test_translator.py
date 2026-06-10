@@ -92,6 +92,16 @@ class TestOpenAIlikedTranslator(unittest.TestCase):
             "OPENAILIKED_MODEL": "test_model",
         }
 
+    def _dotenv_dashscope_defaults(self):
+        defaults = {
+            "DASHSCOPE_API_URL": os.environ.get("DASHSCOPE_API_URL"),
+            "DASHSCOPE_API_KEY": os.environ.get("DASHSCOPE_API_KEY"),
+            "DASHSCOPE_API_MODEL_FLASH": os.environ.get("DASHSCOPE_API_MODEL_FLASH"),
+        }
+        for key, value in defaults.items():
+            self.assertTrue(value, f"{key} should be loaded from .env for this test")
+        return defaults
+
     def test_missing_base_url_raises_error(self):
         """测试缺失 OPENAILIKED_BASE_URL 时抛出异常"""
         ConfigManager.clear()
@@ -113,10 +123,15 @@ class TestOpenAIlikedTranslator(unittest.TestCase):
             "OPENAILIKED_API_KEY": "test_api_key",
         }
         ConfigManager.clear()
-        with self.assertRaises(ValueError) as context:
-            OpenAIlikedTranslator(
-                lang_in="en", lang_out="zh", model=None, envs=envs_without_model
-            )
+        with mock.patch.dict(
+            os.environ,
+            {"DASHSCOPE_API_MODEL_FLASH": ""},
+            clear=False,
+        ):
+            with self.assertRaises(ValueError) as context:
+                OpenAIlikedTranslator(
+                    lang_in="en", lang_out="zh", model=None, envs=envs_without_model
+                )
         self.assertIn("The OPENAILIKED_MODEL is missing.", str(context.exception))
 
     def test_initialization_with_valid_envs(self):
@@ -192,6 +207,66 @@ class TestOpenAIlikedTranslator(unittest.TestCase):
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             api_key="dashscope-key",
         )
+
+    def test_do_translate_uses_dotenv_defaults(self):
+        """测试 do_translate 使用 .env 中加载的 DashScope 默认值"""
+        dashscope_defaults = self._dotenv_dashscope_defaults()
+        ConfigManager.clear()
+        with mock.patch("pdf2zh.translator.openai.OpenAI") as client_class:
+            translator = OpenAIlikedTranslator(
+                lang_in="en",
+                lang_out="zh",
+                model=None,
+                envs={},
+            )
+
+        response = mock.Mock()
+        response.choices = [mock.Mock(message=mock.Mock(content="<think>draft</think>\ntranslated"))]
+        translator.client.chat.completions.create.return_value = response
+
+        with mock.patch.object(translator, "record_usage") as record_usage:
+            translated = translator.do_translate("hello")
+
+        self.assertEqual(translator.envs["OPENAILIKED_BASE_URL"], dashscope_defaults["DASHSCOPE_API_URL"])
+        self.assertEqual(translator.envs["OPENAILIKED_API_KEY"], dashscope_defaults["DASHSCOPE_API_KEY"])
+        self.assertEqual(translator.envs["OPENAILIKED_MODEL"], dashscope_defaults["DASHSCOPE_API_MODEL_FLASH"])
+        self.assertEqual(translator.model, dashscope_defaults["DASHSCOPE_API_MODEL_FLASH"])
+        self.assertFalse(translator.stream)
+        self.assertEqual("translated", translated)
+        client_class.assert_called_once_with(
+            base_url=dashscope_defaults["DASHSCOPE_API_URL"],
+            api_key=dashscope_defaults["DASHSCOPE_API_KEY"],
+        )
+        translator.client.chat.completions.create.assert_called_once_with(
+            model=dashscope_defaults["DASHSCOPE_API_MODEL_FLASH"],
+            **translator.options,
+            messages=translator.prompt("hello", translator.prompttext),
+            stream=False,
+        )
+        record_usage.assert_called_once_with(response, mock.ANY)
+
+    def test_do_translate_raises_service_error_with_dotenv_defaults(self):
+        """测试 do_translate 在服务返回错误时抛出异常，初始化使用 .env 默认值"""
+        self._dotenv_dashscope_defaults()
+        ConfigManager.clear()
+        with mock.patch("pdf2zh.translator.openai.OpenAI"):
+            translator = OpenAIlikedTranslator(
+                lang_in="en",
+                lang_out="zh",
+                model=None,
+                envs={},
+            )
+
+        response = mock.Mock()
+        response.choices = []
+        response.error = {"message": "bad request"}
+        translator.client.chat.completions.create.return_value = response
+
+        with self.assertRaises(ValueError) as context:
+            translator.do_translate("hello")
+
+        self.assertEqual(context.exception.args[0], "Error response from Service")
+        self.assertEqual(context.exception.args[1], {"message": "bad request"})
 
 
 class TestOllamaTranslator(unittest.TestCase):
