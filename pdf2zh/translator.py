@@ -1210,6 +1210,10 @@ class OpenAIlikedTranslator(OpenAITranslator):
         self, lang_in, lang_out, model, envs=None, prompt=None, ignore_cache=False
     ):
         self.set_envs(envs)
+        if not self.envs["OPENAILIKED_BASE_URL"]:
+            self.envs["OPENAILIKED_BASE_URL"] = os.getenv("DASHSCOPE_API_URL") or None
+        if not self.envs["OPENAILIKED_API_KEY"]:
+            self.envs["OPENAILIKED_API_KEY"] = os.getenv("DASHSCOPE_API_KEY") or None
         if self.envs["OPENAILIKED_BASE_URL"]:
             base_url = self.envs["OPENAILIKED_BASE_URL"]
         else:
@@ -1219,7 +1223,7 @@ class OpenAIlikedTranslator(OpenAITranslator):
                 model = self.envs["OPENAILIKED_MODEL"]
             else:
                 raise ValueError("The OPENAILIKED_MODEL is missing.")
-        if self.envs["OPENAILIKED_API_KEY"] is None:
+        if not self.envs["OPENAILIKED_API_KEY"]:
             api_key = "openailiked"
         else:
             api_key = self.envs["OPENAILIKED_API_KEY"]
@@ -1229,6 +1233,7 @@ class OpenAIlikedTranslator(OpenAITranslator):
             model,
             base_url=base_url,
             api_key=api_key,
+            envs=self.envs,
             ignore_cache=ignore_cache,
             prompt=prompt,
             stop_tokens=self.envs.get("OPENAILIKED_STOP_TOKENS", "").split(),

@@ -1,3 +1,4 @@
+import os
 import unittest
 from textwrap import dedent
 from unittest import mock
@@ -94,10 +95,15 @@ class TestOpenAIlikedTranslator(unittest.TestCase):
     def test_missing_base_url_raises_error(self):
         """测试缺失 OPENAILIKED_BASE_URL 时抛出异常"""
         ConfigManager.clear()
-        with self.assertRaises(ValueError) as context:
-            OpenAIlikedTranslator(
-                lang_in="en", lang_out="zh", model="test_model", envs={}
-            )
+        with mock.patch.dict(
+            os.environ,
+            {"DASHSCOPE_API_URL": "", "DASHSCOPE_API_KEY": ""},
+            clear=False,
+        ):
+            with self.assertRaises(ValueError) as context:
+                OpenAIlikedTranslator(
+                    lang_in="en", lang_out="zh", model="test_model", envs={}
+                )
         self.assertIn("The OPENAILIKED_BASE_URL is missing.", str(context.exception))
 
     def test_missing_model_raises_error(self):
@@ -139,17 +145,53 @@ class TestOpenAIlikedTranslator(unittest.TestCase):
             "OPENAILIKED_MODEL": "test_model",
         }
         ConfigManager.clear()
-        translator = OpenAIlikedTranslator(
-            lang_in="en",
-            lang_out="zh",
-            model=None,
-            envs=envs_without_key,
-        )
+        with mock.patch.dict(
+            os.environ,
+            {"DASHSCOPE_API_URL": "", "DASHSCOPE_API_KEY": ""},
+            clear=False,
+        ):
+            translator = OpenAIlikedTranslator(
+                lang_in="en",
+                lang_out="zh",
+                model=None,
+                envs=envs_without_key,
+            )
         self.assertEqual(
             translator.envs["OPENAILIKED_BASE_URL"],
             self.default_envs["OPENAILIKED_BASE_URL"],
         )
         self.assertIsNone(translator.envs["OPENAILIKED_API_KEY"])
+
+    def test_dashscope_envs_provide_openailiked_defaults(self):
+        """测试 DashScope 环境变量可作为 OpenAI-liked 默认值"""
+        ConfigManager.clear()
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DASHSCOPE_API_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "DASHSCOPE_API_KEY": "dashscope-key",
+                "OPENAILIKED_BASE_URL": "",
+                "OPENAILIKED_API_KEY": "",
+            },
+            clear=False,
+        ):
+            with mock.patch("pdf2zh.translator.openai.OpenAI") as client:
+                translator = OpenAIlikedTranslator(
+                    lang_in="en",
+                    lang_out="zh",
+                    model="test_model",
+                    envs={},
+                )
+
+        self.assertEqual(
+            translator.envs["OPENAILIKED_BASE_URL"],
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        self.assertEqual(translator.envs["OPENAILIKED_API_KEY"], "dashscope-key")
+        client.assert_called_once_with(
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key="dashscope-key",
+        )
 
 
 class TestOllamaTranslator(unittest.TestCase):
