@@ -929,6 +929,7 @@ def cancel_job(job_id: str) -> dict:
     return response
 
 
+@app.delete("/v1/translate/{job_id}/artifacts", status_code=200)
 @app.delete("/v1/translate/{job_id}/artefacts", status_code=200)
 def remove_job_artifacts(job_id: str) -> dict:
     """Remove PDF files generated or stored for a job."""
