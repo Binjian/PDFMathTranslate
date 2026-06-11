@@ -173,6 +173,7 @@ for service_case in "${SERVICE_CASES[@]}"; do
       echo "=============================================================="
       echo "Case ${total}: ${case_label}"
       echo "=============================================================="
+      # Comment the following case if you insist on testing the full supported functionalities.
       if [[ "$lang_from" == "Simplified Chinese" && "$mode" == "precise" ]]; then
         echo "SKIP: ${case_label} (Simplified Chinese -> English with precise mode is supported but skipped due to very long duration!)"
         continue
