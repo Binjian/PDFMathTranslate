@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -8,6 +9,7 @@ except ModuleNotFoundError:
     load_dotenv = None
 else:
     load_dotenv(find_dotenv(usecwd=True), override=False)
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 __version__ = "1.9.11"
 __author__ = "Byaidu"
