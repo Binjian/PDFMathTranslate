@@ -47,6 +47,30 @@ class TestCliVersion(unittest.TestCase):
             else:
                 os.environ["PDF2ZH_TEST_DOTENV"] = original_value
 
+    def test_importing_package_loads_repo_dotenv_when_cwd_has_no_dotenv(self):
+        if importlib.util.find_spec("dotenv") is None:
+            self.skipTest("python-dotenv is not installed in this environment")
+
+        original_cwd = os.getcwd()
+        original_value = os.environ.pop("DASHSCOPE_API_URL", None)
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                os.chdir(temp_dir)
+
+                importlib.import_module("pdf2zh")
+
+                self.assertEqual(
+                    os.environ.get("DASHSCOPE_API_URL"),
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                )
+        finally:
+            os.chdir(original_cwd)
+            if original_value is None:
+                os.environ.pop("DASHSCOPE_API_URL", None)
+            else:
+                os.environ["DASHSCOPE_API_URL"] = original_value
+
     def test_version_flag_exits_before_loading_heavy_modules(self):
         cli = importlib.import_module("pdf2zh.pdf2zh")
 
