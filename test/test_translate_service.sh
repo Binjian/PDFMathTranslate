@@ -17,7 +17,7 @@ OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3.6:latest}"
 IGNORE_CACHE="${IGNORE_CACHE:-false}"
 OUTPUT_DIR="${OUTPUT_DIR:-translate_service_output}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
-MAX_POLLS="${MAX_POLLS:-300}"
+MAX_POLLS="${MAX_POLLS:-600}"
 CURL=(curl --noproxy "*")
 
 # service|model — env_* mapping depends on the service:
