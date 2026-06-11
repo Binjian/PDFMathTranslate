@@ -148,7 +148,7 @@ run_case() {
     return 1
   fi
 
-  if ! printf "%s" "$delete_response" | python -c 'import json, sys; payload = json.load(sys.stdin); removed = payload.get("removed_files") or []; sys.exit(not (any(name.endswith(".pdf") and not name.endswith(".mono.pdf") and not name.endswith(".dual.pdf") for name in removed) and any(name.endswith(".mono.pdf") for name in removed) and any(name.endswith(".dual.pdf") for name in removed)))'; then
+  if ! printf "%s" "$delete_response" | python -c 'import json, sys; payload = json.load(sys.stdin); removed = payload.get("removed_files") or []; sys.exit(not (any(name.endswith(".pdf") and not name.endswith("mono.pdf") and not name.endswith("dual.pdf") for name in removed) and any(name.endswith("mono.pdf") for name in removed) and any(name.endswith("dual.pdf") for name in removed)))'; then
     echo "Artifact delete response did not include the source, mono, and dual PDFs:" >&2
     echo "$delete_response" >&2
     return 1
