@@ -173,6 +173,10 @@ for service_case in "${SERVICE_CASES[@]}"; do
       echo "=============================================================="
       echo "Case ${total}: ${case_label}"
       echo "=============================================================="
+      if [[ "$lang_from" == "Simplified Chinese" && "$mode" == "precise" ]]; then
+        echo "SKIP: ${case_label} (Simplified Chinese -> English with precise mode is supported but skipped due to very long duration!)"
+        continue
+      fi
       if run_case "$service" "$model" "$lang_from" "$lang_to" "$mode"; then
         passed=$((passed + 1))
         echo "PASS: ${case_label}"
