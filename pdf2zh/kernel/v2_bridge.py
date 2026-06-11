@@ -159,6 +159,11 @@ def request_to_cli_args(request: Any) -> list[str]:
     if data.get("ignore_cache"):
         args.append("--ignore-cache")
 
+    # Glossary auto-extraction makes extra LLM round-trips that push long
+    # translations (especially zh→en with Ollama) past the 30-min timeout,
+    # causing pdf2zh_next's log_t thread to block process exit indefinitely.
+    args.append("--no-auto-extract-glossary")
+
     return args
 
 
