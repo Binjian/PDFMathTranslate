@@ -158,6 +158,51 @@ run_case() {
   return 0
 }
 
+check_frontend_metrics() {
+  local out_file="${OUTPUT_DIR}/frontend_metrics.md"
+  echo "Fetching frontend metrics from ${API_BASE_URL}/v1/metrics/frontend"
+  local response
+  if ! response="$(
+    "${CURL[@]}" --fail --silent --show-error \
+      "${API_BASE_URL}/v1/metrics/frontend"
+  )"; then
+    echo "Failed to fetch /v1/metrics/frontend" >&2
+    return 1
+  fi
+
+  echo "$response" > "$out_file"
+  echo "Saved to $out_file"
+
+  local header_line
+  header_line="$(printf '%s' "$response" | head -1)"
+
+  local required_cols=("timestamp" "llm_duration" "generated_tokens" "response")
+  for col in "${required_cols[@]}"; do
+    if [[ "$header_line" != *"$col"* ]]; then
+      echo "frontend_metrics.md header is missing column '$col': $header_line" >&2
+      return 1
+    fi
+  done
+
+  local extra_cols=("job_id" "client_ip" "service" "files" "elapsed_time" "llm_usage")
+  for col in "${extra_cols[@]}"; do
+    if [[ "$header_line" == *"$col"* ]]; then
+      echo "frontend_metrics.md header unexpectedly contains '$col': $header_line" >&2
+      return 1
+    fi
+  done
+
+  local row_count
+  row_count="$(printf '%s' "$response" | tail -n +3 | grep -c '|')" || true
+  if [[ "$row_count" -lt 1 ]]; then
+    echo "frontend_metrics.md contains no data rows" >&2
+    return 1
+  fi
+
+  echo "frontend_metrics.md OK: $row_count data row(s), header columns verified"
+  return 0
+}
+
 total=0
 passed=0
 failed_cases=()
@@ -188,6 +233,19 @@ for service_case in "${SERVICE_CASES[@]}"; do
     done
   done
 done
+
+echo
+echo "=============================================================="
+total=$((total + 1))
+echo "Case ${total}: frontend metrics endpoint"
+echo "=============================================================="
+if check_frontend_metrics; then
+  passed=$((passed + 1))
+  echo "PASS: frontend metrics endpoint"
+else
+  failed_cases+=("frontend metrics endpoint")
+  echo "FAIL: frontend metrics endpoint" >&2
+fi
 
 echo
 echo "=============================================================="
