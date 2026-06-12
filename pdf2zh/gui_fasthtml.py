@@ -61,6 +61,9 @@ OUTPUT_DIR = Path("pdf2zh_files")
 GUI_BACKEND = "auto"
 GUI_ONNX: str | None = None
 
+_API_OUTPUT_DIR = Path(ConfigManager.get("PDF2ZH_API_OUTPUT") or "pdf2zh_api_files")
+_API_JOB_LOG = Path(ConfigManager.get("PDF2ZH_API_JOB_LOG") or str(_API_OUTPUT_DIR / "job_log.md"))
+
 
 def _configured_api_base_url() -> str:
     """Return the backend URL, allowing launch-time environment overrides."""
@@ -1478,7 +1481,20 @@ def _authorized(req, user_list: list[tuple[str, str]], auth_message: str):
     return None
 
 
-def _page(*children, autohide: bool = False, ui_lang: str = "zh"):
+def _parse_md_table(text: str) -> tuple[list[str], list[list[str]]]:
+    """Parse a Markdown pipe table into (headers, rows), newest first."""
+    lines = [ln for ln in text.splitlines() if ln.strip().startswith("|")]
+    if len(lines) < 3:
+        return [], []
+    def _cells(line: str) -> list[str]:
+        return [c.strip().replace("\\|", "|") for c in line.strip().strip("|").split("|")]
+    headers = _cells(lines[0])
+    rows = [_cells(ln) for ln in lines[2:]]
+    rows.reverse()
+    return headers, rows
+
+
+def _page(*children, autohide: bool = False, ui_lang: str = "zh", active_tab: str = "translate"):
     recaptcha = []
     if flag_demo:
         recaptcha = [
@@ -1506,6 +1522,19 @@ def _page(*children, autohide: bool = False, ui_lang: str = "zh"):
                 defer=True,
             ),
         ]
+    tab_nav = Nav(
+        A(
+            "Translate",
+            href=f"/?ui_lang={ui_lang}",
+            cls="tab-link" + (" tab-active" if active_tab == "translate" else ""),
+        ),
+        A(
+            "Job Log",
+            href="/job-log",
+            cls="tab-link" + (" tab-active" if active_tab == "job-log" else ""),
+        ),
+        cls="tab-nav",
+    )
     return (
         Title(_t(ui_lang, "title")),
         *recaptcha,
@@ -1525,6 +1554,7 @@ def _page(*children, autohide: bool = False, ui_lang: str = "zh"):
                     "if(toggle) toggle.checked=false;"
                 ),
             ),
+            tab_nav,
             *children,
             cls=f"app-shell{' autohide' if autohide else ''}",
         ),
@@ -1633,6 +1663,15 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .autohide .result-toolbar h2 { font-size: 1rem; line-height: 1.2; margin: 0; }
                 .autohide .result-toolbar a.button, .autohide .result-toolbar button, .autohide .result-toolbar [role="button"] { width: auto; padding: .25rem .55rem; margin: 0; font-size: .875rem; }
                 .autohide .result #translated-frame { height: calc(100vh - 3.25rem); }
+                .tab-nav { display: flex; gap: .4rem; margin-bottom: .75rem; border-bottom: 2px solid #dfe3ea; padding-bottom: .3rem; }
+                .tab-link { display: inline-block; padding: .3rem .8rem; border-radius: 6px 6px 0 0; font-size: .9rem; font-weight: 500; color: #526071; text-decoration: none; background: none; border: 1px solid transparent; }
+                .tab-link:hover { background: #eef2f7; color: #243042; }
+                .tab-link.tab-active { background: #fff; border-color: #dfe3ea #dfe3ea #fff; color: #243042; font-weight: 600; margin-bottom: -2px; padding-bottom: .45rem; }
+                .job-log-wrap { overflow-x: auto; }
+                .job-log-wrap table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+                .job-log-wrap th, .job-log-wrap td { padding: .3rem .5rem; border: 1px solid #dfe3ea; vertical-align: top; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
+                .job-log-wrap th { background: #f0f4f8; font-weight: 600; position: sticky; top: 0; white-space: nowrap; }
+                .job-log-wrap td { white-space: pre-wrap; word-break: break-word; }
                 details { margin-top: .5rem; }
                 details > div { margin-top: .35rem; }
                 @media (min-width: 1500px) {
@@ -2065,6 +2104,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 cls="layout",
             ),
             ui_lang=ui_lang,
+            active_tab="translate",
         )
 
     @rt("/service-fields")
@@ -2484,6 +2524,25 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
 
     _pdfjs_dir = Path(__file__).parent / "static" / "pdfjs"
     app.mount("/pdfjs", StaticFiles(directory=str(_pdfjs_dir)), name="pdfjs")
+
+    @rt("/job-log")
+    def job_log(req, ui_lang: str = "zh"):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        ui_lang = _ui_lang(ui_lang)
+        if not _API_JOB_LOG.exists() or _API_JOB_LOG.stat().st_size == 0:
+            content = Div(P("No job log entries yet."), cls="panel")
+        else:
+            headers, rows = _parse_md_table(_API_JOB_LOG.read_text(encoding="utf-8"))
+            content = Div(
+                Table(
+                    Thead(Tr(*[Th(h) for h in headers])),
+                    Tbody(*[Tr(*[Td(cell) for cell in row]) for row in rows]),
+                ),
+                cls="job-log-wrap panel",
+            )
+        return _page(content, ui_lang=ui_lang, active_tab="job-log")
 
     return app
 
