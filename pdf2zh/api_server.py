@@ -971,6 +971,18 @@ def download_result(job_id: str, variant: str) -> FileResponse:
     )
 
 
+@app.get("/v1/metrics/frontend")
+def get_frontend_metrics() -> FileResponse:
+    """Return the frontend_metrics.md log file."""
+    if not FRONTEND_METRICS.exists() or FRONTEND_METRICS.stat().st_size == 0:
+        raise HTTPException(404, "No frontend metrics recorded yet")
+    return FileResponse(
+        str(FRONTEND_METRICS),
+        media_type="text/markdown",
+        filename=FRONTEND_METRICS.name,
+    )
+
+
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
 def run_api_server(

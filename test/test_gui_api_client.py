@@ -2,7 +2,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 from pdf2zh import api_server, gui_fasthtml
 
@@ -412,6 +412,43 @@ class TestApiBackendClient(unittest.TestCase):
             self.assertEqual(gui_fasthtml.translation_jobs[session_id]["error"], detail)
         finally:
             gui_fasthtml.translation_jobs.pop(session_id, None)
+
+
+class TestFrontendMetricsEndpoint(unittest.TestCase):
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(api_server.app)
+
+    def test_returns_404_when_file_does_not_exist(self):
+        with TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "frontend_metrics.md"
+            with patch.object(api_server, "FRONTEND_METRICS", missing):
+                response = self._client().get("/v1/metrics/frontend")
+        self.assertEqual(response.status_code, 404)
+
+    def test_returns_404_when_file_is_empty(self):
+        with TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "frontend_metrics.md"
+            empty.write_text("", encoding="utf-8")
+            with patch.object(api_server, "FRONTEND_METRICS", empty):
+                response = self._client().get("/v1/metrics/frontend")
+        self.assertEqual(response.status_code, 404)
+
+    def test_returns_file_content_with_markdown_media_type(self):
+        content = (
+            "| timestamp | llm_duration | generated_tokens | response |\n"
+            "|---|---:|---:|---|\n"
+            "| 2026-06-12 10:00:00 | 5m 02s | 4,098 | {\"status\": \"done\"} |\n"
+        )
+        with TemporaryDirectory() as tmp:
+            metrics_file = Path(tmp) / "frontend_metrics.md"
+            metrics_file.write_text(content, encoding="utf-8")
+            with patch.object(api_server, "FRONTEND_METRICS", metrics_file):
+                response = self._client().get("/v1/metrics/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/markdown", response.headers["content-type"])
+        self.assertEqual(response.text, content)
 
 
 if __name__ == "__main__":
