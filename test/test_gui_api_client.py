@@ -2,7 +2,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch, PropertyMock
+from unittest.mock import patch
 
 from pdf2zh import api_server, gui_fasthtml
 
