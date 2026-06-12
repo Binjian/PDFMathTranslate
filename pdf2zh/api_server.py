@@ -7,8 +7,9 @@ Or via python:
     python -m pdf2zh.api_server
 
 Environment variables:
-    PDF2ZH_API_OUTPUT    Output directory (default: pdf2zh_api_files)
-    PDF2ZH_API_JOB_LOG   Job log Markdown table (default: <output>/job_log.md)
+    PDF2ZH_API_OUTPUT              Output directory (default: pdf2zh_api_files)
+    PDF2ZH_API_JOB_LOG             Job log Markdown table (default: <output>/job_log.md)
+    PDF2ZH_API_FRONTEND_METRICS    Frontend metrics Markdown table (default: <output>/frontend_metrics.md)
     PDF2ZH_API_HOST     Bind host for run_api_server() (default: 0.0.0.0)
     PDF2ZH_API_PORT     Port for run_api_server() (default: 7861)
 """
@@ -67,6 +68,9 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = Path(ConfigManager.get("PDF2ZH_API_OUTPUT", "pdf2zh_api_files"))
 JOB_LOG = Path(
     ConfigManager.get("PDF2ZH_API_JOB_LOG", str(OUTPUT_DIR / "job_log.md"))
+)
+FRONTEND_METRICS = Path(
+    ConfigManager.get("PDF2ZH_API_FRONTEND_METRICS") or str(OUTPUT_DIR / "frontend_metrics.md")
 )
 
 # ── Translator / language / page lookup tables ────────────────────────────────
@@ -402,6 +406,14 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                 JOB_LOG.write_text(header + separator, encoding="utf-8")
             with JOB_LOG.open("a", encoding="utf-8") as handle:
                 handle.write("| " + " | ".join(_job_log_cell(value) for value in row) + " |\n")
+            fm_header = "| timestamp | llm_duration | generated_tokens | response |\n"
+            fm_separator = "|---|---:|---:|---|\n"
+            fm_row = [row[0], row[7], row[8], row[9]]
+            FRONTEND_METRICS.parent.mkdir(parents=True, exist_ok=True)
+            if not FRONTEND_METRICS.exists() or FRONTEND_METRICS.stat().st_size == 0:
+                FRONTEND_METRICS.write_text(fm_header + fm_separator, encoding="utf-8")
+            with FRONTEND_METRICS.open("a", encoding="utf-8") as handle:
+                handle.write("| " + " | ".join(_job_log_cell(v) for v in fm_row) + " |\n")
     except Exception:
         logger.exception("Unable to update API job log at %s", JOB_LOG)
 
