@@ -316,27 +316,70 @@ def _format_llm_generated_tokens(usage: dict | None) -> str:
     return f"{generated_tokens:,}"
 
 
+def _llm_requests(usage: dict | None) -> int:
+    if not usage:
+        return 0
+    try:
+        return int(usage.get("requests") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _llm_prompt_tokens(usage: dict | None) -> int:
+    if not usage:
+        return 0
+    try:
+        return int(usage.get("prompt_eval_count") or usage.get("prompt_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _llm_total_tokens(usage: dict | None) -> int:
+    if not usage:
+        return 0
+    try:
+        total = int(usage.get("total_tokens") or 0)
+        if total:
+            return total
+        prompt = int(usage.get("prompt_eval_count") or usage.get("prompt_tokens") or 0)
+        completion = int(usage.get("eval_count") or usage.get("completion_tokens") or 0)
+        return prompt + completion
+    except (TypeError, ValueError):
+        return 0
+
+
 def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     """Append a human-readable Markdown table row for a job event."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     elapsed = _job_elapsed_seconds(job)
+    usage = job.get("llm_usage")
+
+    requests_n = _llm_requests(usage)
+    prompt_n = _llm_prompt_tokens(usage)
+    completion_n = _llm_generated_tokens(usage) or 0
+    total_n = _llm_total_tokens(usage)
+    api_time_s = _format_llm_duration(usage) or "0"
+
     row = [
         timestamp,
         job_id,
+        f"**{response.get('status', '')}**",
         job.get("client_ip", ""),
         job.get("service", ""),
         ", ".join(_job_file_names(job)),
         _format_elapsed_time(elapsed),
-        _format_llm_usage(job.get("llm_usage")),
-        _format_llm_duration(job.get("llm_usage")),
-        _format_llm_generated_tokens(job.get("llm_usage")),
+        f"**{requests_n:,}**",
+        f"{prompt_n:,}" if prompt_n else "0",
+        f"{completion_n:,}" if completion_n else "0",
+        f"**{total_n:,}**" if total_n else "**0**",
+        f"**{api_time_s}**",
         response,
     ]
     try:
         with _job_log_lock:
             JOB_LOG.parent.mkdir(parents=True, exist_ok=True)
-            header = "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_usage | llm_duration | generated_tokens | response |\n"
-            separator = "|---|---|---|---|---|---:|---|---:|---:|---|\n"
+            header = "| timestamp | job_id | status | client_ip | service | files | elapsed_time | requests | prompt | completion | total_tokens | api_time | response |\n"
+            separator = "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|\n"
             old_tables = (
                 (
                     "| timestamp | job_id | service | files | response |\n",
@@ -362,6 +405,14 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                     "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_duration | generated_tokens | response |\n",
                     "|---|---|---|---|---|---:|---:|---:|---|\n",
                 ),
+                (
+                    "| timestamp | job_id | client_ip | service | files | elapsed_time | llm_usage | llm_duration | generated_tokens | response |\n",
+                    "|---|---|---|---|---|---:|---|---:|---:|---|\n",
+                ),
+                (
+                    "| timestamp | job_id | client_ip | service | files | elapsed_time | requests | prompt | completion | total_tokens | api_time | response |\n",
+                    "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|\n",
+                ),
             )
             if JOB_LOG.exists() and JOB_LOG.stat().st_size > 0:
                 content = JOB_LOG.read_text(encoding="utf-8")
@@ -377,29 +428,43 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                     migrated = [header.rstrip("\n"), separator.rstrip("\n")]
                     for line in content.splitlines()[2:]:
                         parts = line.split(" | ")
-                        if len(parts) == 5:
-                            parts.insert(2, "")
-                            parts.insert(5, "")
-                            parts.insert(6, "")
-                            parts.insert(7, "")
-                            parts.insert(8, "")
-                            line = " | ".join(parts)
-                        elif len(parts) == 6:
-                            parts.insert(2, "")
-                            parts.insert(6, "")
-                            parts.insert(7, "")
-                            parts.insert(8, "")
-                            line = " | ".join(parts)
-                        elif len(parts) == 7:
-                            parts.insert(2, "")
-                            parts[7:7] = ["", ""]
-                            line = " | ".join(parts)
-                        elif len(parts) == 8:
-                            parts[7:7] = ["", ""]
-                            line = " | ".join(parts)
-                        elif len(parts) == 9:
-                            parts.insert(6, "")
-                            line = " | ".join(parts)
+                        n = len(parts)
+                        if n == 5:
+                            # ts, jid, svc, files, resp
+                            parts.insert(2, "")   # status
+                            parts.insert(3, "")   # ip
+                            parts.insert(6, "")   # elapsed
+                            parts[7:7] = ["**0**", "0", "0", "**0**", "**0**"]
+                        elif n == 6:
+                            # ts, jid, svc, files, elapsed, resp
+                            parts.insert(2, "")   # status
+                            parts.insert(3, "")   # ip
+                            parts[7:7] = ["**0**", "0", "0", "**0**", "**0**"]
+                        elif n == 7:
+                            # ts, jid, svc, files, elapsed, llm_usage, resp
+                            parts.insert(2, "")   # status
+                            parts.insert(3, "")   # ip
+                            parts[7:8] = ["**0**", "0", "0", "**0**", "**0**"]
+                        elif n == 8:
+                            # ts, jid, ip, svc, files, elapsed, llm_usage, resp
+                            parts.insert(2, "")   # status
+                            parts[7:8] = ["**0**", "0", "0", "**0**", "**0**"]
+                        elif n == 9:
+                            # ts, jid, ip, svc, files, elapsed, llm_dur, gen_tok, resp
+                            parts.insert(2, "")   # status
+                            old_dur = parts[7].strip()
+                            old_tok = parts[8].strip()
+                            parts[7:9] = ["**0**", "0", old_tok, "**0**", f"**{old_dur or '0'}**"]
+                        elif n == 10:
+                            # ts, jid, ip, svc, files, elapsed, llm_usage, llm_dur, gen_tok, resp
+                            parts.insert(2, "")   # status
+                            old_dur = parts[8].strip()
+                            old_tok = parts[9].strip()
+                            parts[7:10] = ["**0**", "0", old_tok, "**0**", f"**{old_dur or '0'}**"]
+                        elif n == 12:
+                            # ts, jid, ip, svc, files, elapsed, requests, prompt, completion, total, api, resp
+                            parts.insert(2, "")   # status
+                        line = " | ".join(parts)
                         migrated.append(line)
                     JOB_LOG.write_text("\n".join(migrated) + "\n", encoding="utf-8")
             if not JOB_LOG.exists() or JOB_LOG.stat().st_size == 0:
@@ -408,7 +473,7 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                 handle.write("| " + " | ".join(_job_log_cell(value) for value in row) + " |\n")
             fm_header = "| timestamp | llm_duration | generated_tokens | response |\n"
             fm_separator = "|---|---:|---:|---|\n"
-            fm_row = [row[0], row[7], row[8], row[9]]
+            fm_row = [timestamp, api_time_s, f"{completion_n:,}" if completion_n else "0", response]
             FRONTEND_METRICS.parent.mkdir(parents=True, exist_ok=True)
             if not FRONTEND_METRICS.exists() or FRONTEND_METRICS.stat().st_size == 0:
                 FRONTEND_METRICS.write_text(fm_header + fm_separator, encoding="utf-8")
