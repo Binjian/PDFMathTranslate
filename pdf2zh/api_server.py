@@ -686,6 +686,7 @@ def _monitor_job(
                     job_id,
                     _jobs[job_id],
                     {
+                        "job_id": job_id,
                         "status": "done",
                         "message": "Translation complete",
                         "mono": Path(event["mono"]).name,
@@ -709,7 +710,7 @@ def _monitor_job(
                 _append_job_log(
                     job_id,
                     _jobs[job_id],
-                    {"status": "error", "message": msg},
+                    {"job_id": job_id, "status": "error", "message": msg},
                 )
                 logger.error("Translation job %s failed: %s", job_id, msg)
                 break
