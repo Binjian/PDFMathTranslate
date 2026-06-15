@@ -5,6 +5,7 @@ import logging
 import multiprocessing
 import queue
 import os
+import re
 import shutil
 import socket
 import threading
@@ -1482,7 +1483,7 @@ def _authorized(req, user_list: list[tuple[str, str]], auth_message: str):
 
 
 def _parse_md_table(text: str) -> tuple[list[str], list[list[str]]]:
-    """Parse a Markdown pipe table into (headers, rows), newest first."""
+    """Parse a Markdown pipe table into (headers, rows), oldest first."""
     lines = [ln for ln in text.splitlines() if ln.strip().startswith("|")]
     if len(lines) < 3:
         return [], []
@@ -1490,8 +1491,34 @@ def _parse_md_table(text: str) -> tuple[list[str], list[list[str]]]:
         return [c.strip().replace("\\|", "|") for c in line.strip().strip("|").split("|")]
     headers = _cells(lines[0])
     rows = [_cells(ln) for ln in lines[2:]]
-    rows.reverse()
     return headers, rows
+
+
+def _sort_key_elapsed(cell: str) -> float:
+    """Parse formatted elapsed strings like '1h 01m 31s', '34m 54s', '5s' into seconds."""
+    cell = re.sub(r'\*', '', cell).strip()
+    if not cell or cell == "0":
+        return 0.0
+    total = 0.0
+    m = re.search(r'(\d+)h', cell)
+    if m:
+        total += int(m.group(1)) * 3600
+    m = re.search(r'(\d+)m', cell)
+    if m:
+        total += int(m.group(1)) * 60
+    m = re.search(r'(\d+)s', cell)
+    if m:
+        total += int(m.group(1))
+    return total
+
+
+def _sort_key_number(cell: str) -> float:
+    """Extract a numeric sort key from a cell that may have bold markers and commas."""
+    cell = re.sub(r'[*,]', '', cell).strip()
+    try:
+        return float(cell)
+    except ValueError:
+        return 0.0
 
 
 def _page(*children, autohide: bool = False, ui_lang: str = "zh", active_tab: str = "translate"):
@@ -1672,6 +1699,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 .job-log-wrap th, .job-log-wrap td { padding: .3rem .5rem; border: 1px solid #dfe3ea; vertical-align: top; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
                 .job-log-wrap th { background: #f0f4f8; font-weight: 600; position: sticky; top: 0; white-space: nowrap; }
                 .job-log-wrap td { white-space: pre-wrap; word-break: break-word; }
+                .job-log-wrap th a { color: inherit; text-decoration: none; display: block; cursor: pointer; }
+                .job-log-wrap th a:hover { text-decoration: underline; }
+                .job-log-wrap th a.sort-asc::after { content: " ▲"; }
+                .job-log-wrap th a.sort-desc::after { content: " ▼"; }
                 details { margin-top: .5rem; }
                 details > div { margin-top: .35rem; }
                 @media (min-width: 1500px) {
@@ -2526,18 +2557,55 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
     app.mount("/pdfjs", StaticFiles(directory=str(_pdfjs_dir)), name="pdfjs")
 
     @rt("/job-log")
-    def job_log(req, ui_lang: str = "zh"):
+    def job_log(req, ui_lang: str = "zh", sort: str = "timestamp", order: str = "desc"):
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
         ui_lang = _ui_lang(ui_lang)
+
+        _ELAPSED_COLS = {"elapsed_time", "api_time"}
+        _NUMBER_COLS = {"requests", "prompt", "completion", "total_tokens"}
+        _STRING_COLS = {"timestamp", "job_id", "client_ip", "service", "files"}
+        _SORTABLE = _ELAPSED_COLS | _NUMBER_COLS | _STRING_COLS
+        if sort not in _SORTABLE:
+            sort = "timestamp"
+        if order not in ("asc", "desc"):
+            order = "desc"
+
         if not _API_JOB_LOG.exists() or _API_JOB_LOG.stat().st_size == 0:
             content = Div(P("No job log entries yet."), cls="panel")
         else:
             headers, rows = _parse_md_table(_API_JOB_LOG.read_text(encoding="utf-8"))
+
+            col_idx = headers.index(sort) if sort in headers else None
+            if col_idx is not None:
+                reverse = order == "desc"
+                if sort in _ELAPSED_COLS:
+                    rows.sort(
+                        key=lambda row, i=col_idx: _sort_key_elapsed(row[i] if i < len(row) else ""),
+                        reverse=reverse,
+                    )
+                elif sort in _NUMBER_COLS:
+                    rows.sort(
+                        key=lambda row, i=col_idx: _sort_key_number(row[i] if i < len(row) else ""),
+                        reverse=reverse,
+                    )
+                else:
+                    rows.sort(
+                        key=lambda row, i=col_idx: (row[i] if i < len(row) else "").lower(),
+                        reverse=reverse,
+                    )
+
+            def _th(h: str) -> object:
+                if h not in _SORTABLE:
+                    return Th(h)
+                next_order = "asc" if (h == sort and order == "desc") else "desc"
+                link_cls = f"sort-{order}" if h == sort else ""
+                return Th(A(h, href=f"/job-log?sort={h}&order={next_order}&ui_lang={ui_lang}", cls=link_cls))
+
             content = Div(
                 Table(
-                    Thead(Tr(*[Th(h) for h in headers])),
+                    Thead(Tr(*[_th(h) for h in headers])),
                     Tbody(*[Tr(*[Td(cell) for cell in row]) for row in rows]),
                 ),
                 cls="job-log-wrap panel",
