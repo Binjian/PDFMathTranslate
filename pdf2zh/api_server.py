@@ -622,16 +622,12 @@ def _translate_process(params: dict, progress_queue: multiprocessing.Queue) -> N
 
         if not Path(mono).exists() or not Path(dual).exists():
             error_event = {"type": "error", "message": "Translation produced no output files"}
-            llm_usage = _llm_usage_snapshot(params.get("service_name", ""))
-            if llm_usage is not None:
-                error_event["llm_usage"] = llm_usage
+            error_event["llm_usage"] = _llm_usage_snapshot(params.get("service_name", "")) or {"requests": 0}
             progress_queue.put(error_event)
             return
 
         done_event = {"type": "done", "mono": mono, "dual": dual}
-        llm_usage = _llm_usage_snapshot(params.get("service_name", ""))
-        if llm_usage is not None:
-            done_event["llm_usage"] = llm_usage
+        done_event["llm_usage"] = _llm_usage_snapshot(params.get("service_name", "")) or {"requests": 0}
         progress_queue.put(done_event)
     except BaseException as exc:
         message = str(exc) or type(exc).__name__
