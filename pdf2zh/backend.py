@@ -8,6 +8,12 @@ import io
 from string import Template
 from pdf2zh.doclayout import ModelInstance
 from pdf2zh.config import ConfigManager
+from pdf2zh.mongo_store import JobArtifactStore
+
+# MongoDB is the source of truth for result PDFs: the task stores the mono/dual
+# blobs in GridFS keyed by the Celery task id and the result route serves them
+# from MongoDB instead of round-tripping large payloads through the result backend.
+_artifact_store = JobArtifactStore()
 
 flask_app = Flask("pdf2zh")
 flask_app.config.from_mapping(
@@ -55,7 +61,16 @@ def translate_task(
         model=ModelInstance.value,
         **args,
     )
-    return doc_mono, doc_dual
+    # Store the result PDFs in MongoDB (the source of truth) keyed by task id;
+    # return only the stored file names so the result backend stays lightweight.
+    task_id = self.request.id
+    _artifact_store.put_file(
+        doc_mono, f"{task_id}-mono.pdf", job_id=task_id, variant="mono"
+    )
+    _artifact_store.put_file(
+        doc_dual, f"{task_id}-dual.pdf", job_id=task_id, variant="dual"
+    )
+    return {"mono": f"{task_id}-mono.pdf", "dual": f"{task_id}-dual.pdf"}
 
 
 @flask_app.route("/v1/translate", methods=["POST"])
@@ -81,6 +96,7 @@ def get_translate_task(id: str):
 def delete_translate_task(id: str):
     result: AsyncResult = celery_app.AsyncResult(id)
     result.revoke(terminate=True)
+    _artifact_store.delete_files({"job_id": id})
     return {"state": str(result.state)}
 
 
@@ -91,9 +107,14 @@ def get_translate_result(id: str, format: str):
         return {"error": "task not finished"}, 400
     if not result.successful():
         return {"error": "task failed"}, 400
-    doc_mono, doc_dual = result.get()
-    to_send = doc_mono if format == "mono" else doc_dual
-    return send_file(io.BytesIO(to_send), "application/pdf")
+    variant = "mono" if format == "mono" else "dual"
+    if not _artifact_store.available():
+        return {"error": "artifact storage (MongoDB) is unavailable"}, 503
+    blob = _artifact_store.get_file({"job_id": id, "variant": variant})
+    if blob is None:
+        return {"error": "result not found"}, 404
+    data, _ = blob
+    return send_file(io.BytesIO(data), "application/pdf")
 
 
 if __name__ == "__main__":

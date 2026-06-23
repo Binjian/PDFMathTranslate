@@ -35,7 +35,7 @@ from typing import Annotated, Optional
 import requests as _requests
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from pdf2zh.config import ConfigManager
 from pdf2zh.kernel import KernelRegistry
@@ -623,32 +623,65 @@ def _validate_ollama_envs(envs: dict[str, str | None]) -> None:
         )
 
 
+def _ingest_job_files(job_id: str, job: dict) -> dict[str, str]:
+    """Upload a finished job's PDFs to GridFS (the source of truth).
+
+    Reads source/mono/dual from the on-disk scratch folder and stores each blob
+    keyed by ``job_id`` + ``variant``. Only when every present file was stored
+    successfully is the on-disk job folder removed — a Mongo outage leaves the
+    scratch files in place so nothing is lost.
+    """
+    stored: dict[str, str] = {}
+    all_ok = True
+    for variant in ("source", "mono", "dual"):
+        path_str = job.get(variant)
+        if not path_str:
+            continue
+        path = Path(path_str)
+        if not path.is_file():
+            all_ok = False
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            logger.exception("Unable to read %s for job %s", path, job_id)
+            all_ok = False
+            continue
+        file_id = _artifact_store.put_file(
+            data, path.name, job_id=job_id, variant=variant
+        )
+        if file_id is None:
+            all_ok = False
+        else:
+            stored[variant] = path.name
+
+    if all_ok and stored:
+        job_dir = (OUTPUT_DIR / job_id).resolve()
+        if OUTPUT_DIR.resolve() in job_dir.parents:
+            shutil.rmtree(job_dir, ignore_errors=True)
+    return stored
+
+
 def _cleanup_job_artifacts(job_id: str, job: dict) -> dict:
-    """Remove PDF files for a completed job."""
+    """Remove a job's PDF artefacts from MongoDB and any on-disk scratch."""
     if job.get("status") == "running":
         raise HTTPException(409, "Cannot remove artifacts while job is running")
+
+    removed = _artifact_store.delete_files({"job_id": job_id})
 
     job_dir = (OUTPUT_DIR / job_id).resolve()
     output_root = OUTPUT_DIR.resolve()
     if output_root not in (job_dir, *job_dir.parents):
         raise HTTPException(400, "Invalid job output directory")
-
-    candidates: set[Path] = set()
-    for variant in ("mono", "dual"):
-        path_str = job.get(variant)
-        if path_str:
-            candidates.add(Path(path_str))
     if job_dir.exists():
-        candidates.update(job_dir.glob("*.pdf"))
-
-    removed: list[str] = []
-    for path in sorted(candidates):
-        path = path.resolve()
-        if output_root not in (path, *path.parents):
-            continue
-        if path.is_file():
-            path.unlink()
-            removed.append(path.name)
+        for path in sorted(job_dir.glob("*.pdf")):
+            path = path.resolve()
+            if output_root not in path.parents:
+                continue
+            if path.is_file():
+                path.unlink()
+                if path.name not in removed:
+                    removed.append(path.name)
 
     response = {
         "job_id": job_id,
@@ -793,6 +826,9 @@ def _monitor_job(
                         "finished_at": time.time(),
                     }
                 )
+                # Ingest the produced PDFs into MongoDB (the source of truth)
+                # before logging, so the metadata reflects what was stored.
+                _ingest_job_files(job_id, _jobs[job_id])
                 _append_job_log(
                     job_id,
                     _jobs[job_id],
@@ -1089,22 +1125,24 @@ def remove_job_artifacts(job_id: str) -> dict:
 
 
 @app.get("/v1/translate/{job_id}/{variant}")
-def download_result(job_id: str, variant: str) -> FileResponse:
-    """Download the translated PDF.  ``variant`` is ``mono`` or ``dual``."""
+def download_result(job_id: str, variant: str) -> Response:
+    """Download the translated PDF from MongoDB.  ``variant`` is ``mono``/``dual``."""
     if variant not in {"mono", "dual"}:
         raise HTTPException(400, "variant must be 'mono' or 'dual'")
+    # A running job has nothing to serve yet; report that distinctly.
     job = _jobs.get(job_id)
-    if not job:
-        raise HTTPException(404, "Job not found")
-    if job["status"] != "done":
+    if job and job["status"] == "running":
         raise HTTPException(409, f"Job not finished (status: {job['status']})")
-    path_str = job.get(variant)
-    if not path_str or not Path(path_str).exists():
+    if not _artifact_store.available():
+        raise HTTPException(503, "Artifact storage (MongoDB) is unavailable")
+    result = _artifact_store.get_file({"job_id": job_id, "variant": variant})
+    if result is None:
         raise HTTPException(404, f"{variant} file not found")
-    return FileResponse(
-        path_str,
+    data, filename = result
+    return Response(
+        content=data,
         media_type="application/pdf",
-        filename=Path(path_str).name,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

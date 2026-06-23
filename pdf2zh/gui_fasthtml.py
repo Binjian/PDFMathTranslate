@@ -23,12 +23,13 @@ from fasthtml.common import *
 import httpx
 import requests
 from starlette.datastructures import UploadFile
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 import tqdm
 
 from pdf2zh import __version__
 from pdf2zh.config import ConfigManager
+from pdf2zh.mongo_store import JobArtifactStore
 from pdf2zh.translator import (
     AnythingLLMTranslator,
     ArgosTranslator,
@@ -62,8 +63,97 @@ OUTPUT_DIR = Path("pdf2zh_files")
 GUI_BACKEND = "auto"
 GUI_ONNX: str | None = None
 
-_API_OUTPUT_DIR = Path(ConfigManager.get("PDF2ZH_API_OUTPUT") or "pdf2zh_api_files")
-_API_JOB_LOG = Path(ConfigManager.get("PDF2ZH_API_JOB_LOG") or str(_API_OUTPUT_DIR / "job_log.md"))
+# MongoDB is the source of truth for artefacts: produced PDFs are ingested here
+# and every retrieval route (/file, /download, /pdf-viewer, /job-log) reads from
+# it. The on-disk OUTPUT_DIR is only transient scratch for the kernels.
+_artifact_store = JobArtifactStore()
+
+
+def _ingest_output_files(session_id: str, paths: dict[str, str]) -> None:
+    """Upload a finished job's PDFs to MongoDB, keyed by their base file name.
+
+    ``paths`` maps a variant (``source`` / ``mono`` / ``dual``) to an on-disk
+    path. Files are stored under their basename so the existing filename-based
+    routes can serve them straight from MongoDB.
+    """
+    for variant, path_str in paths.items():
+        if not path_str:
+            continue
+        path = Path(path_str)
+        if not path.is_file():
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            logger.exception("Unable to read %s for ingestion", path)
+            continue
+        _artifact_store.put_file(
+            data, path.name, session_id=session_id, variant=variant
+        )
+
+
+def _serve_pdf_from_store(name: str, download_name: str | None = None) -> Response:
+    """Serve a stored PDF blob by base file name, reading only from MongoDB."""
+    if not _artifact_store.available():
+        return Response("Artifact storage (MongoDB) is unavailable", status_code=503)
+    result = _artifact_store.get_file_by_name(os.path.basename(name))
+    if result is None:
+        return Response("Not found", status_code=404)
+    data, filename = result
+    disposition = "attachment" if download_name else "inline"
+    out_name = download_name or filename
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{out_name}"'},
+    )
+
+
+def _format_elapsed_hms(seconds: float | int | None) -> str:
+    """Format seconds as '1h 02m 03s' / '2m 03s' / '5s' (matches sort parser)."""
+    if not seconds:
+        return "0"
+    total = max(0, int(round(float(seconds))))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
+_JOB_LOG_HEADERS = [
+    "timestamp", "job_id", "status", "client_ip", "service", "files",
+    "elapsed_time", "requests", "prompt", "completion", "total_tokens",
+]
+
+
+def _mongo_job_log_table() -> tuple[list[str], list[list[str]]]:
+    """Build the job-log (headers, rows) from MongoDB metadata documents."""
+    rows: list[list[str]] = []
+    for doc in _artifact_store.list_jobs():
+        updated_at = doc.get("updated_at")
+        timestamp = (
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(updated_at))
+            if updated_at
+            else ""
+        )
+        files = doc.get("files") or []
+        rows.append([
+            timestamp,
+            str(doc.get("job_id") or doc.get("_id") or ""),
+            str(doc.get("status") or ""),
+            str(doc.get("client_ip") or ""),
+            str(doc.get("service") or ""),
+            ", ".join(files) if isinstance(files, list) else str(files),
+            _format_elapsed_hms(doc.get("elapsed_seconds")),
+            str(doc.get("llm_requests") or 0),
+            str(doc.get("llm_prompt_tokens") or 0),
+            str(doc.get("llm_completion_tokens") or 0),
+            str(doc.get("llm_total_tokens") or 0),
+        ])
+    return _JOB_LOG_HEADERS, rows
 
 
 def _configured_api_base_url() -> str:
@@ -857,15 +947,16 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             _fail(data.get("error") or "API translation error")
             return
 
-    # ── Download result files locally so existing /file and /download routes work ──
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # ── Pull the result PDFs from the API and store them in MongoDB ───────
+    # The GUI serves artefacts only from MongoDB, so download each variant and
+    # ingest it under a stable base name that the /file and /download routes use.
     orig_name = os.path.basename(
         params.get("file_input") or params.get("link_input") or "translated.pdf"
     )
     stem = Path(orig_name).stem
 
     try:
-        paths: dict[str, str] = {}
+        names: dict[str, str] = {}
         for variant in ("mono", "dual"):
             dl = _request_api_backend(
                 "GET",
@@ -873,9 +964,14 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
                 timeout=_download_timeout,
             )
             dl.raise_for_status()
-            dest = OUTPUT_DIR / f"{stem}-{variant}.pdf"
-            dest.write_bytes(dl.content)
-            paths[variant] = str(dest)
+            fname = f"{stem}-{variant}.pdf"
+            if _artifact_store.put_file(
+                dl.content, fname, session_id=session_id, variant=variant
+            ) is None:
+                raise RuntimeError(
+                    "Artifact storage (MongoDB) is unavailable; cannot persist results"
+                )
+            names[variant] = fname
 
         ui_lang = translation_jobs[session_id].get("ui_lang", "en")
         translation_jobs[session_id].update(
@@ -883,8 +979,8 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
                 "status": "done",
                 "progress": 1.0,
                 "message": _t(ui_lang, "translated"),
-                "mono": paths["mono"],
-                "dual": paths["dual"],
+                "mono": names["mono"],
+                "dual": names["dual"],
                 "finished_at": time.time(),
             }
         )
@@ -1124,17 +1220,6 @@ def _service_env_fields(
     else:
         fields.append(Input(type="hidden", name="prompt", value=""))
     return Div(*fields, id="env-fields", cls="stack")
-
-
-def _output_file_path(name: str) -> Path | None:
-    name = os.path.basename(name)
-    path = (OUTPUT_DIR / name).resolve()
-    root = OUTPUT_DIR.resolve()
-    if root not in path.parents and path != root:
-        return None
-    if not path.exists() or not path.is_file():
-        return None
-    return path
 
 
 def _translated_download_name(name: str, variant: str) -> str:
@@ -1480,18 +1565,6 @@ def _authorized(req, user_list: list[tuple[str, str]], auth_message: str):
     if (username, password) not in user_list:
         return _auth_response(auth_message)
     return None
-
-
-def _parse_md_table(text: str) -> tuple[list[str], list[list[str]]]:
-    """Parse a Markdown pipe table into (headers, rows), oldest first."""
-    lines = [ln for ln in text.splitlines() if ln.strip().startswith("|")]
-    if len(lines) < 3:
-        return [], []
-    def _cells(line: str) -> list[str]:
-        return [c.strip().replace("\\|", "|") for c in line.strip().strip("|").split("|")]
-    headers = _cells(lines[0])
-    rows = [_cells(ln) for ln in lines[2:]]
-    return headers, rows
 
 
 def _sort_key_elapsed(cell: str) -> float:
@@ -2194,10 +2267,9 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         suffix = Path(safe_name).suffix.lower()
         if suffix != ".pdf":
             return _preview_panel(autohide=autohide, ui_lang=ui_lang)
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        preview_path = OUTPUT_DIR / f"{uuid.uuid4()}-{safe_name}"
-        preview_path.write_bytes(await upload.read())
-        return _preview_panel(preview_path.name, autohide=autohide, ui_lang=ui_lang)
+        preview_name = f"{uuid.uuid4()}-{safe_name}"
+        _artifact_store.put_file(await upload.read(), preview_name, variant="preview")
+        return _preview_panel(preview_name, autohide=autohide, ui_lang=ui_lang)
 
     @rt("/translate")
     async def translate(req):
@@ -2275,6 +2347,16 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                         )
                     elif event_type == "done":
                         finished_at = time.time()
+                        # Ingest the produced PDFs into MongoDB (source of truth)
+                        # so the result routes can serve them from the store.
+                        _ingest_output_files(
+                            session_id,
+                            {
+                                "source": params.get("file_input", ""),
+                                "mono": event["mono"],
+                                "dual": event["dual"],
+                            },
+                        )
                         translation_jobs[session_id].update(
                             {
                                 "status": "done",
@@ -2408,10 +2490,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
-        path = _output_file_path(name)
-        if path is None:
-            return Response("Not found", status_code=404)
-        return FileResponse(path)
+        return _serve_pdf_from_store(name)
 
     @rt("/download")
     def download(req, name: str, variant: str = "mono"):
@@ -2420,13 +2499,8 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             return auth
         if variant not in {"mono", "dual"}:
             return Response("Not found", status_code=404)
-        path = _output_file_path(name)
-        if path is None:
-            return Response("Not found", status_code=404)
-        return FileResponse(
-            path,
-            media_type="application/pdf",
-            filename=_translated_download_name(path.name, variant),
+        return _serve_pdf_from_store(
+            name, download_name=_translated_download_name(os.path.basename(name), variant)
         )
 
     @rt("/pdf-viewer")
@@ -2434,10 +2508,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         auth = _authorized(req, user_list, auth_message)
         if auth:
             return auth
-        path = _output_file_path(name)
-        if path is None:
-            return Response("Not found", status_code=404)
-        name = path.name
+        name = os.path.basename(name)
 
         pdf_url = f"/file?name={quote(name)}"
         facing = view == "facing"
@@ -2572,11 +2643,10 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
         if order not in ("asc", "desc"):
             order = "desc"
 
-        if not _API_JOB_LOG.exists() or _API_JOB_LOG.stat().st_size == 0:
+        headers, rows = _mongo_job_log_table()
+        if not rows:
             content = Div(P("No job log entries yet."), cls="panel")
         else:
-            headers, rows = _parse_md_table(_API_JOB_LOG.read_text(encoding="utf-8"))
-
             col_idx = headers.index(sort) if sort in headers else None
             if col_idx is not None:
                 reverse = order == "desc"

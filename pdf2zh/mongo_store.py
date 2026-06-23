@@ -1,20 +1,28 @@
-"""Optional MongoDB persistence for API translation-job artefacts.
+"""MongoDB persistence for translation-job artefacts.
 
-The API server records one document per job (keyed by ``job_id``) capturing
-status, service, client IP, output file names, LLM usage and timings. This is a
-durable, queryable complement to the in-memory ``_jobs`` dict and the Markdown
-job log — it does **not** store the PDF binaries (those stay on disk).
+MongoDB is the source of truth for finished jobs. For each job the store keeps:
 
-The store is *optional*: it is only active when a connection URI is configured.
-If the URI is unset, ``pymongo`` is not installed, or the server is unreachable,
-the store silently disables itself and the API server keeps working with its
-existing file-based logging.
+* one **metadata** document per ``job_id`` (status, service, client IP, output
+  file names, LLM usage and timings) in the configured collection, and
+* the **PDF binaries** (source / mono / dual) in GridFS, since PDFs routinely
+  exceed BSON's 16 MB document limit.
+
+The on-disk job folder produced by the translation kernels is treated as
+transient scratch: once a job finishes its PDFs are ingested here and all
+retrieval (downloads, previews, the job log) reads from MongoDB.
+
+Writes degrade gracefully — a backend hiccup is logged and never breaks a
+translation. Retrieval, by contrast, *requires* MongoDB: callers use
+``available()`` to decide whether to serve a request or return 503.
 
 Environment variables:
-    PDF2ZH_API_MONGODB_URI         MongoDB connection URI. When unset, the store
-                                   is disabled. (Falls back to MONGODB_URI.)
+    PDF2ZH_API_MONGODB_URI         MongoDB connection URI (falls back to
+                                   MONGODB_URI). Retrieval is unavailable when
+                                   unset.
     PDF2ZH_API_MONGODB_DB          Database name (default: pdf2zh)
-    PDF2ZH_API_MONGODB_COLLECTION  Collection name (default: job_artifacts)
+    PDF2ZH_API_MONGODB_COLLECTION  Metadata collection name (default:
+                                   job_artifacts). GridFS buckets use the
+                                   ``<collection>_fs`` prefix.
 """
 from __future__ import annotations
 
@@ -32,16 +40,18 @@ _SERVER_SELECTION_TIMEOUT_MS = 2000
 
 
 class JobArtifactStore:
-    """Thin, fail-safe wrapper around a MongoDB collection of job artefacts.
+    """Fail-safe wrapper around a MongoDB metadata collection + GridFS bucket.
 
-    Every public method is a no-op when the store is disabled, and all Mongo
-    interaction is wrapped so a backend hiccup can never break translation.
+    Metadata writes are no-ops when the store is disabled; binary retrieval
+    callers gate on :meth:`available` and surface 503 when MongoDB is down.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._client = None
+        self._db = None
         self._collection = None
+        self._fs = None
         self._enabled = False
         self._init_failed = False
         self._uri = (
@@ -57,6 +67,10 @@ class JobArtifactStore:
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    def available(self) -> bool:
+        """Public predicate: True when MongoDB can serve a retrieval request."""
+        return self._ensure_connection()
 
     def _ensure_connection(self) -> bool:
         """Lazily connect on first use; returns True when the store is usable."""
@@ -80,7 +94,8 @@ class JobArtifactStore:
                 # Force server selection so an unreachable host fails here.
                 client.admin.command("ping")
                 self._client = client
-                self._collection = client[self._db_name][self._collection_name]
+                self._db = client[self._db_name]
+                self._collection = self._db[self._collection_name]
                 self._enabled = True
                 logger.info(
                     "MongoDB artefact store connected (db=%s, collection=%s)",
@@ -91,11 +106,25 @@ class JobArtifactStore:
             except Exception as exc:
                 self._init_failed = True
                 logger.warning(
-                    "MongoDB artefact store disabled (%s); falling back to "
-                    "file-based job logging.",
+                    "MongoDB artefact store disabled (%s); retrieval from "
+                    "MongoDB will be unavailable.",
                     exc,
                 )
                 return False
+
+    def _gridfs(self):
+        """Return a GridFS handle, or None when the store is unavailable."""
+        if not self._ensure_connection():
+            return None
+        if self._fs is None:
+            with self._lock:
+                if self._fs is None:
+                    from gridfs import GridFS
+
+                    self._fs = GridFS(self._db, collection=f"{self._collection_name}_fs")
+        return self._fs
+
+    # ── Metadata ──────────────────────────────────────────────────────────
 
     def record(self, job_id: str, document: dict, event: dict | None = None) -> None:
         """Upsert the latest job snapshot and append a lifecycle event.
@@ -131,6 +160,68 @@ class JobArtifactStore:
             logger.exception("Unable to read job %s from MongoDB", job_id)
             return None
 
+    def list_jobs(self, limit: int = 500) -> list[dict]:
+        """Return job metadata documents, most recently updated first."""
+        if not self._ensure_connection():
+            return []
+        try:
+            cursor = (
+                self._collection.find().sort("updated_at", -1).limit(int(limit))
+            )
+            return list(cursor)
+        except Exception:
+            logger.exception("Unable to list jobs from MongoDB")
+            return []
+
+    # ── Binary artefacts (GridFS) ─────────────────────────────────────────
+
+    def put_file(self, data: bytes, filename: str, **fields) -> str | None:
+        """Store a PDF blob in GridFS, returning its id (None when disabled).
+
+        Extra keyword fields (e.g. ``job_id``, ``variant``, ``session_id``) are
+        stored as top-level fields on the GridFS file document so blobs can be
+        queried back by job or variant.
+        """
+        fs = self._gridfs()
+        if fs is None:
+            return None
+        try:
+            return str(fs.put(data, filename=filename, **fields))
+        except Exception:
+            logger.exception("Unable to store file %s in GridFS", filename)
+            return None
+
+    def get_file(self, query: dict) -> tuple[bytes, str] | None:
+        """Return ``(data, filename)`` for the newest blob matching ``query``."""
+        fs = self._gridfs()
+        if fs is None:
+            return None
+        try:
+            for grid_out in fs.find(query).sort("uploadDate", -1).limit(1):
+                return grid_out.read(), grid_out.filename
+            return None
+        except Exception:
+            logger.exception("Unable to read file %s from GridFS", query)
+            return None
+
+    def get_file_by_name(self, filename: str) -> tuple[bytes, str] | None:
+        """Return ``(data, filename)`` for the newest blob with ``filename``."""
+        return self.get_file({"filename": filename})
+
+    def delete_files(self, query: dict) -> list[str]:
+        """Delete all blobs matching ``query``; return the removed file names."""
+        fs = self._gridfs()
+        if fs is None:
+            return []
+        removed: list[str] = []
+        try:
+            for grid_out in fs.find(query):
+                removed.append(grid_out.filename)
+                fs.delete(grid_out._id)
+        except Exception:
+            logger.exception("Unable to delete files %s from GridFS", query)
+        return removed
+
     def close(self) -> None:
         if self._client is not None:
             try:
@@ -138,5 +229,7 @@ class JobArtifactStore:
             except Exception:
                 pass
         self._client = None
+        self._db = None
         self._collection = None
+        self._fs = None
         self._enabled = False

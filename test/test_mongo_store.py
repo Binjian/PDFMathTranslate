@@ -267,5 +267,158 @@ class TestClose(unittest.TestCase):
         self.assertIsNone(store._collection)
 
 
+class _FakeGridOut:
+    def __init__(self, oid, filename, data, fields):
+        self._id = oid
+        self.filename = filename
+        self._data = data
+        self.fields = fields
+
+    def read(self):
+        return self._data
+
+
+class _FakeCursor(list):
+    def sort(self, field, direction=1):
+        ordered = list(reversed(self)) if direction == -1 else list(self)
+        return _FakeCursor(ordered)
+
+    def limit(self, n):
+        return _FakeCursor(self[:n])
+
+
+class _FakeGridFS:
+    """Minimal in-memory stand-in for gridfs.GridFS used in tests."""
+
+    def __init__(self):
+        self.files: list[_FakeGridOut] = []
+        self.deleted: list[int] = []
+
+    def put(self, data, filename=None, **fields):
+        oid = len(self.files) + 1
+        self.files.append(_FakeGridOut(oid, filename, data, fields))
+        return oid
+
+    def find(self, query):
+        def _match(go: _FakeGridOut) -> bool:
+            for key, value in query.items():
+                if key == "filename":
+                    if go.filename != value:
+                        return False
+                elif go.fields.get(key) != value:
+                    return False
+            return True
+
+        return _FakeCursor([go for go in self.files if _match(go)])
+
+    def delete(self, oid):
+        self.deleted.append(oid)
+        self.files = [go for go in self.files if go._id != oid]
+
+
+def _install_fake_gridfs(fs: _FakeGridFS):
+    module = types.ModuleType("gridfs")
+    module.GridFS = MagicMock(return_value=fs)
+    return patch.dict(sys.modules, {"gridfs": module})
+
+
+def _connected_store():
+    store = _store_with_config({"PDF2ZH_API_MONGODB_URI": "mongodb://db"})
+    with _install_fake_pymongo(_make_client()):
+        store._ensure_connection()
+    return store
+
+
+class TestAvailable(unittest.TestCase):
+    def test_available_false_when_disabled(self):
+        self.assertFalse(_store_with_config({}).available())
+
+    def test_available_true_when_connected(self):
+        store = _store_with_config({"PDF2ZH_API_MONGODB_URI": "mongodb://db"})
+        with _install_fake_pymongo(_make_client()):
+            self.assertTrue(store.available())
+
+
+class TestGridFSFiles(unittest.TestCase):
+    def test_put_disabled_returns_none(self):
+        store = _store_with_config({})
+        self.assertIsNone(store.put_file(b"data", "x.pdf"))
+
+    def test_get_disabled_returns_none(self):
+        store = _store_with_config({})
+        self.assertIsNone(store.get_file_by_name("x.pdf"))
+
+    def test_put_and_get_latest_version_by_name(self):
+        store = _connected_store()
+        fs = _FakeGridFS()
+        with _install_fake_gridfs(fs):
+            store.put_file(b"old", "doc.pdf", job_id="j1", variant="mono")
+            store.put_file(b"new", "doc.pdf", job_id="j2", variant="mono")
+            result = store.get_file_by_name("doc.pdf")
+        self.assertEqual(result, (b"new", "doc.pdf"))
+
+    def test_get_file_by_metadata_query(self):
+        store = _connected_store()
+        fs = _FakeGridFS()
+        with _install_fake_gridfs(fs):
+            store.put_file(b"mono-bytes", "a-mono.pdf", job_id="j1", variant="mono")
+            store.put_file(b"dual-bytes", "a-dual.pdf", job_id="j1", variant="dual")
+            result = store.get_file({"job_id": "j1", "variant": "dual"})
+        self.assertEqual(result, (b"dual-bytes", "a-dual.pdf"))
+
+    def test_get_missing_returns_none(self):
+        store = _connected_store()
+        with _install_fake_gridfs(_FakeGridFS()):
+            self.assertIsNone(store.get_file({"job_id": "nope", "variant": "mono"}))
+
+    def test_delete_files_returns_names_and_removes(self):
+        store = _connected_store()
+        fs = _FakeGridFS()
+        with _install_fake_gridfs(fs):
+            store.put_file(b"m", "a-mono.pdf", job_id="j1", variant="mono")
+            store.put_file(b"d", "a-dual.pdf", job_id="j1", variant="dual")
+            store.put_file(b"o", "b-mono.pdf", job_id="j2", variant="mono")
+            removed = store.delete_files({"job_id": "j1"})
+            remaining = store.get_file({"job_id": "j2", "variant": "mono"})
+        self.assertEqual(sorted(removed), ["a-dual.pdf", "a-mono.pdf"])
+        self.assertEqual(remaining, (b"o", "b-mono.pdf"))
+
+    def test_gridfs_constructed_with_bucket_prefix(self):
+        store = _store_with_config(
+            {
+                "PDF2ZH_API_MONGODB_URI": "mongodb://db",
+                "PDF2ZH_API_MONGODB_COLLECTION": "jobs",
+            }
+        )
+        with _install_fake_pymongo(_make_client()):
+            store._ensure_connection()
+        fs = _FakeGridFS()
+        with _install_fake_gridfs(fs):
+            store.put_file(b"x", "x.pdf")
+            sys.modules["gridfs"].GridFS.assert_called_once()
+            self.assertEqual(
+                sys.modules["gridfs"].GridFS.call_args.kwargs["collection"], "jobs_fs"
+            )
+
+
+class TestListJobs(unittest.TestCase):
+    def test_list_jobs_disabled_returns_empty(self):
+        self.assertEqual(_store_with_config({}).list_jobs(), [])
+
+    def test_list_jobs_sorted_query(self):
+        client = _make_client()
+        store = _store_with_config({"PDF2ZH_API_MONGODB_URI": "mongodb://db"})
+        with _install_fake_pymongo(client):
+            store._ensure_connection()
+        collection = client.__getitem__.return_value.__getitem__.return_value
+        docs = [{"_id": "j2"}, {"_id": "j1"}]
+        collection.find.return_value.sort.return_value.limit.return_value = docs
+
+        result = store.list_jobs(limit=10)
+        collection.find.return_value.sort.assert_called_once_with("updated_at", -1)
+        collection.find.return_value.sort.return_value.limit.assert_called_once_with(10)
+        self.assertEqual(result, docs)
+
+
 if __name__ == "__main__":
     unittest.main()
