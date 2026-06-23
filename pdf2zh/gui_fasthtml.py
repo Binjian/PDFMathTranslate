@@ -855,29 +855,48 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
         logger.warning("API health check at %s/health failed: %s", api_base, exc)
 
     # ── Submit the job ────────────────────────────────────────────────────
-    form_data = {
-        "service": params["service"],
-        "lang_from": params["lang_from"],
-        "lang_to": params["lang_to"],
-        "page_range": params["page_range"],
-        "page_input": params["page_input"],
-        "prompt": params["prompt"],
-        "threads": str(params["threads"]),
-        "skip_subset_fonts": str(params["skip_subset_fonts"]),
-        "ignore_cache": str(params["ignore_cache"]),
-        "vfont": params["vfont"],
-        "mode_choice": params["mode_choice"],
-        **{
-            f"env_{i}": params.get(f"env_{i}", "")
-            for i in range(MAX_ENV_FIELDS)
-        },
-    }
-    if params["service"] == "OpenAI-liked":
-        # Backend-only credentials are never transmitted; the API server
-        # resolves them from its own .env.
-        for i, env_name in enumerate(service_map["OpenAI-liked"].envs or {}):
-            if env_name in OPENAILIKED_BACKEND_ONLY_ENVS:
-                form_data[f"env_{i}"] = ""
+    # The "service" variant targets POST /v1/service/translate, which exposes
+    # `service` (fast/precise) as the only knob and hides the translator choice,
+    # its credentials and the model — so we send none of those fields.
+    is_service_variant = params.get("api_variant") == "service"
+    submit_path = "/v1/service/translate" if is_service_variant else "/v1/translate"
+    if is_service_variant:
+        form_data = {
+            "service": params["service"],
+            "lang_from": params["lang_from"],
+            "lang_to": params["lang_to"],
+            "page_range": params["page_range"],
+            "page_input": params["page_input"],
+            "prompt": params["prompt"],
+            "threads": str(params["threads"]),
+            "skip_subset_fonts": str(params["skip_subset_fonts"]),
+            "ignore_cache": str(params["ignore_cache"]),
+            "vfont": params["vfont"],
+        }
+    else:
+        form_data = {
+            "service": params["service"],
+            "lang_from": params["lang_from"],
+            "lang_to": params["lang_to"],
+            "page_range": params["page_range"],
+            "page_input": params["page_input"],
+            "prompt": params["prompt"],
+            "threads": str(params["threads"]),
+            "skip_subset_fonts": str(params["skip_subset_fonts"]),
+            "ignore_cache": str(params["ignore_cache"]),
+            "vfont": params["vfont"],
+            "mode_choice": params["mode_choice"],
+            **{
+                f"env_{i}": params.get(f"env_{i}", "")
+                for i in range(MAX_ENV_FIELDS)
+            },
+        }
+        if params["service"] == "OpenAI-liked":
+            # Backend-only credentials are never transmitted; the API server
+            # resolves them from its own .env.
+            for i, env_name in enumerate(service_map["OpenAI-liked"].envs or {}):
+                if env_name in OPENAILIKED_BACKEND_ONLY_ENVS:
+                    form_data[f"env_{i}"] = ""
 
     try:
         if params["file_type"] == "File" and params.get("file_input"):
@@ -885,7 +904,7 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             with open(src, "rb") as fh:
                 resp = _request_api_backend(
                     "POST",
-                    f"{api_base}/v1/translate",
+                    f"{api_base}{submit_path}",
                     data=form_data,
                     files={"file": (os.path.basename(src), fh, "application/pdf")},
                     timeout=_connect_timeout,
@@ -894,7 +913,7 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             form_data["link"] = params.get("link_input", "")
             resp = _request_api_backend(
                 "POST",
-                f"{api_base}/v1/translate",
+                f"{api_base}{submit_path}",
                 data=form_data,
                 timeout=_connect_timeout,
             )
@@ -1629,6 +1648,11 @@ def _page(*children, autohide: bool = False, ui_lang: str = "zh", active_tab: st
             cls="tab-link" + (" tab-active" if active_tab == "translate" else ""),
         ),
         A(
+            "Quick",
+            href=f"/service?ui_lang={ui_lang}",
+            cls="tab-link" + (" tab-active" if active_tab == "service" else ""),
+        ),
+        A(
             "Job Log",
             href="/job-log",
             cls="tab-link" + (" tab-active" if active_tab == "job-log" else ""),
@@ -2210,6 +2234,287 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             ui_lang=ui_lang,
             active_tab="translate",
         )
+
+    @rt("/service")
+    def service_tab(req, ui_lang: str = "zh"):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        ui_lang = _ui_lang(ui_lang)
+        session_id = str(uuid.uuid4())
+        saved_settings = _load_last_gui_settings()
+        seed_params = dict(saved_settings.get("params", {}))
+        file_type = str(seed_params.get("file_type") or "File")
+        lang_from = str(seed_params.get("lang_from") or ConfigManager.get("PDF2ZH_LANG_FROM", "English"))
+        lang_to = str(seed_params.get("lang_to") or ConfigManager.get("PDF2ZH_LANG_TO", "Simplified Chinese"))
+        page_range = str(seed_params.get("page_range") or list(page_map.keys())[0])
+        if page_range not in page_map:
+            page_range = list(page_map.keys())[0]
+        autohide_checked = bool(saved_settings.get("autohide"))
+        # `service` here is the fast/precise selector exposed by the new endpoint;
+        # the translator (OpenAI-liked), its credentials and the model stay hidden.
+        service_value = str(seed_params.get("service") or "fast")
+        if service_value not in ("fast", "precise"):
+            service_value = "fast"
+        form = Form(
+            Input(type="hidden", name="session_id", value=session_id),
+            Input(type="hidden", name="ui_lang", value=ui_lang),
+            _field(
+                _t(ui_lang, "language"),
+                Select(
+                    Option(_t(ui_lang, "english"), value="en", selected=ui_lang == "en"),
+                    Option(_t(ui_lang, "chinese"), value="zh", selected=ui_lang == "zh"),
+                    name="ui_lang_selector",
+                    onchange="window.location='/service?ui_lang=' + this.value",
+                ),
+            ),
+            Div(
+                Label(
+                    Input(
+                        type="checkbox",
+                        name="autohide",
+                        value="true",
+                        id="autohide-toggle",
+                        checked=autohide_checked,
+                    ),
+                    _t(ui_lang, "autohide"),
+                ),
+                cls="toggle-row",
+            ),
+            Script(
+                """
+                document.getElementById('autohide-toggle')?.addEventListener('change', (event) => {
+                    document.querySelector('.app-shell')?.classList.toggle('autohide', event.target.checked);
+                });
+                document.body.addEventListener('htmx:afterSwap', (event) => {
+                    if (event.detail.target?.id === 'preview-panel') {
+                        const panel = event.detail.target;
+                        const enabled = panel.dataset.autohide === 'true';
+                        document.getElementById('autohide-toggle').checked = enabled;
+                        document.querySelector('.app-shell')?.classList.toggle('autohide', enabled);
+                    }
+                });
+                """
+            ),
+            _field(
+                _t(ui_lang, "type"),
+                Select(
+                    Option(_t(ui_lang, "file_choice"), value="File", selected=file_type == "File"),
+                    Option(_t(ui_lang, "link_choice"), value="Link", selected=file_type == "Link"),
+                    name="file_type",
+                ),
+            ),
+            Div(
+                _field(
+                    _t(ui_lang, "file_section"),
+                    Div(
+                        Span(_t(ui_lang, "drop_file"), cls="drop-hint"),
+                        Input(
+                            type="file",
+                            name="file_input",
+                            id="file-input",
+                            accept=".pdf,.doc,.docx",
+                            hx_post="/preview",
+                            hx_trigger="change",
+                            hx_target="#preview-panel",
+                            hx_swap="outerHTML",
+                            hx_encoding="multipart/form-data",
+                            hx_include="[name='autohide'],[name='ui_lang']",
+                        ),
+                        id="file-drop-zone",
+                        cls="file-drop-zone",
+                    ),
+                ),
+                _field(
+                    _t(ui_lang, "link"),
+                    Input(
+                        type="url",
+                        name="link_input",
+                        value=str(seed_params.get("link_input") or ""),
+                        placeholder="https://...",
+                    ),
+                ),
+                cls="stack",
+            ),
+            H2(_t(ui_lang, "option")),
+            _field(
+                _t(ui_lang, "translation_mode"),
+                Select(*_mode_options(ui_lang, service_value), name="service"),
+            ),
+            Div(
+                _field(
+                    _t(ui_lang, "translate_from"),
+                    Select(*_lang_options(ui_lang, lang_from), name="lang_from"),
+                ),
+                _field(
+                    _t(ui_lang, "translate_to"),
+                    Select(*_lang_options(ui_lang, lang_to), name="lang_to"),
+                ),
+                cls="split",
+            ),
+            _field(
+                _t(ui_lang, "pages"),
+                Select(
+                    *_page_options(ui_lang, page_range),
+                    name="page_range",
+                    onchange=(
+                        "document.getElementById('page-input-field').style.display="
+                        "this.value==='Others'?'':'none';"
+                    ),
+                ),
+            ),
+            Div(
+                _field(
+                    _t(ui_lang, "page_range"),
+                    Input(
+                        type="text",
+                        name="page_input",
+                        value=str(seed_params.get("page_input") or ""),
+                        placeholder="1,3,5-7",
+                    ),
+                ),
+                id="page-input-field",
+                style="" if page_range == "Others" else "display:none",
+            ),
+            Details(
+                Summary(_t(ui_lang, "experimental_options")),
+                Div(
+                    _field(
+                        _t(ui_lang, "threads"),
+                        Input(
+                            type="number",
+                            min="1",
+                            step="1",
+                            name="threads",
+                            value=str(seed_params.get("threads") or "4"),
+                        ),
+                    ),
+                    _checkbox(
+                        _t(ui_lang, "skip_subset_fonts"),
+                        "skip_subset_fonts",
+                        checked=bool(seed_params.get("skip_subset_fonts")),
+                    ),
+                    _checkbox(
+                        _t(ui_lang, "ignore_cache"),
+                        "ignore_cache",
+                        checked=bool(seed_params.get("ignore_cache")),
+                    ),
+                    _field(
+                        _t(ui_lang, "vfont"),
+                        Input(
+                            type="text",
+                            name="vfont",
+                            value=str(
+                                seed_params.get("vfont")
+                                if seed_params.get("vfont") is not None
+                                else ConfigManager.get("PDF2ZH_VFONT", "")
+                            ),
+                        ),
+                    ),
+                    cls="stack",
+                ),
+            ),
+            Input(type="hidden", name="recaptcha_response", id="recaptcha-response", value=""),
+            Div(id="recaptcha-box"),
+            Div(
+                Button(_t(ui_lang, "translate"), type="submit"),
+                Button(
+                    _t(ui_lang, "cancel"),
+                    type="button",
+                    hx_post="/cancel",
+                    hx_include="[name='session_id']",
+                    hx_target="#cancel-status",
+                    cls="secondary",
+                ),
+                Span(id="cancel-status", cls="muted"),
+                cls="actions",
+            ),
+            method="post",
+            action="/service-translate",
+            enctype="multipart/form-data",
+            cls="stack",
+        )
+        return _page(
+            Div(
+                Div(H2(_t(ui_lang, "file_section")), form, cls="control-panel"),
+                Div(_preview_panel(ui_lang=ui_lang), cls="stack"),
+                cls="layout",
+            ),
+            ui_lang=ui_lang,
+            active_tab="service",
+        )
+
+    @rt("/service-translate")
+    async def service_translate(req):
+        auth = _authorized(req, user_list, auth_message)
+        if auth:
+            return auth
+        form = await req.form()
+        autohide = bool(form.get("autohide"))
+        ui_lang = _ui_lang(form.get("ui_lang"))
+        upload = form.get("file_input")
+        uploaded_path = None
+        if isinstance(upload, UploadFile) and upload.filename:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            safe_name = os.path.basename(upload.filename)
+            uploaded_path = OUTPUT_DIR / f"{uuid.uuid4()}-{safe_name}"
+            uploaded_path.write_bytes(await upload.read())
+        session_id = form.get("session_id") or str(uuid.uuid4())
+        translation_jobs[session_id] = {
+            "status": "running",
+            "progress": 0.0,
+            "message": _t(ui_lang, "progress_starting"),
+            "autohide": autohide,
+            "ui_lang": ui_lang,
+            "started_at": time.time(),
+        }
+        # The new endpoint exposes `service` (fast/precise) only; the translator,
+        # its credentials and the model are resolved server-side and stay hidden.
+        service_value = form.get("service", "fast")
+        params = {
+            "api_variant": "service",
+            "file_type": form.get("file_type", "File"),
+            "file_input": str(uploaded_path) if uploaded_path else "",
+            "link_input": form.get("link_input", ""),
+            "service": service_value,
+            "lang_from": form.get("lang_from", "English"),
+            "lang_to": form.get("lang_to", "Simplified Chinese"),
+            "page_range": form.get("page_range", "All"),
+            "page_input": form.get("page_input", ""),
+            "prompt": "",
+            "threads": form.get("threads", "4"),
+            "skip_subset_fonts": bool(form.get("skip_subset_fonts")),
+            "ignore_cache": bool(form.get("ignore_cache")),
+            "vfont": form.get("vfont", ""),
+            "mode_choice": service_value,
+            "recaptcha_response": form.get("recaptcha_response", ""),
+            "session_id": session_id,
+        }
+        translation_jobs[session_id]["params"] = dict(params)
+        translation_jobs[session_id]["settings"] = _run_settings(params, ui_lang)
+        _save_last_gui_settings(params, ui_lang, autohide)
+
+        if not API_BASE_URL:
+            translation_jobs[session_id].update(
+                {
+                    "status": "error",
+                    "progress": 1.0,
+                    "message": (
+                        "The Quick tab uses the API server. "
+                        "Set PDF2ZH_API_BASE_URL to the running pdf2zh API."
+                    ),
+                    "error": "PDF2ZH_API_BASE_URL is not configured",
+                    "finished_at": time.time(),
+                }
+            )
+            return _progress_page(session_id, ui_lang=ui_lang, autohide=autohide)
+
+        threading.Thread(
+            target=_run_api_translation_job,
+            args=(session_id, params),
+            daemon=True,
+        ).start()
+        return _progress_page(session_id, ui_lang=ui_lang, autohide=autohide)
 
     @rt("/service-fields")
     def service_fields(req, service: str, ui_lang: str = "zh"):

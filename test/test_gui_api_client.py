@@ -654,6 +654,129 @@ class TestGuiJobLogTableHelper(unittest.TestCase):
         self.assertEqual(gui_fasthtml._format_elapsed_hms(3661), "1h 01m 01s")
 
 
+class TestQuickServiceTab(unittest.TestCase):
+    """The Quick tab drives POST /v1/service/translate and hides parameters."""
+
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(gui_fasthtml.create_app())
+
+    def test_quick_tab_link_present_in_nav(self):
+        response = self._client().get("/")
+        self.assertIn(">Quick<", response.text)
+
+    def test_service_tab_hides_translator_credentials_and_mode(self):
+        response = self._client().get("/service")
+        self.assertEqual(response.status_code, 200)
+        text = response.text
+        # Exposes only the fast/precise selector and posts to the new endpoint.
+        self.assertIn('action="/service-translate"', text)
+        self.assertIn('value="fast"', text)
+        self.assertIn('value="precise"', text)
+        self.assertIn("tab-active", text)
+        # Hidden parameters are not rendered as graphical elements.
+        self.assertNotIn('name="env_0"', text)
+        self.assertNotIn('name="mode_choice"', text)
+        self.assertNotIn("OpenAI-liked", text)
+        self.assertNotIn("OPENAILIKED_MODEL", text)
+
+    def test_submit_delegates_with_service_variant(self):
+        captured = {}
+
+        def fake_runner(session_id, params):
+            captured["params"] = params
+
+        def make_thread(target=None, args=(), daemon=None):
+            class _T:
+                def start(self_):
+                    target(*args)
+
+            return _T()
+
+        with (
+            patch.object(gui_fasthtml, "API_BASE_URL", "http://api.test"),
+            patch.object(gui_fasthtml.threading, "Thread", side_effect=make_thread),
+            patch.object(gui_fasthtml, "_run_api_translation_job", fake_runner),
+        ):
+            response = self._client().post(
+                "/service-translate",
+                data={
+                    "service": "precise",
+                    "file_type": "Link",
+                    "link_input": "http://example.test/doc.pdf",
+                    "lang_to": "German",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        params = captured["params"]
+        self.assertEqual(params["api_variant"], "service")
+        self.assertEqual(params["service"], "precise")
+        self.assertEqual(params["mode_choice"], "precise")
+        self.assertEqual(params["lang_to"], "German")
+        self.assertFalse(any(k.startswith("env_") for k in params))
+
+    def test_submit_without_api_base_url_errors_clearly(self):
+        with patch.object(gui_fasthtml, "API_BASE_URL", ""):
+            response = self._client().post(
+                "/service-translate",
+                data={
+                    "service": "fast",
+                    "file_type": "Link",
+                    "link_input": "http://example.test/doc.pdf",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        # The progress page is returned; the job is already marked errored.
+        self.assertIn("translation-progress", response.text)
+
+    def test_api_runner_posts_to_service_endpoint_without_hidden_fields(self):
+        session_id = "session-quick"
+        gui_fasthtml.translation_jobs[session_id] = {"status": "running"}
+        calls = []
+
+        def fake_request(method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            if url.endswith("/health"):
+                return _FakeRequestsResponse({"status": "ok"})
+            # Stop after capturing the submit by returning a non-202 status.
+            return _FakeRequestsResponse({"detail": "stop"}, status_code=400, text="bad")
+
+        params = {
+            "api_variant": "service",
+            "file_type": "Link",
+            "file_input": "",
+            "link_input": "http://example.test/doc.pdf",
+            "service": "fast",
+            "lang_from": "English",
+            "lang_to": "Simplified Chinese",
+            "page_range": "All",
+            "page_input": "",
+            "prompt": "",
+            "threads": "4",
+            "skip_subset_fonts": False,
+            "ignore_cache": False,
+            "vfont": "",
+            "mode_choice": "fast",
+            "session_id": session_id,
+        }
+        try:
+            with (
+                patch.object(gui_fasthtml, "API_BASE_URL", "http://api.test"),
+                patch.object(gui_fasthtml, "_request_api_backend", side_effect=fake_request),
+            ):
+                gui_fasthtml._run_api_translation_job(session_id, params)
+
+            submit = next(c for c in calls if c[0] == "POST")
+            self.assertTrue(submit[1].endswith("/v1/service/translate"))
+            form_data = submit[2]["data"]
+            self.assertEqual(form_data["service"], "fast")
+            self.assertNotIn("mode_choice", form_data)
+            self.assertFalse(any(k.startswith("env_") for k in form_data))
+        finally:
+            gui_fasthtml.translation_jobs.pop(session_id, None)
+
+
 class TestFrontendMetricsEndpoint(unittest.TestCase):
     def _client(self):
         from starlette.testclient import TestClient
