@@ -414,6 +414,246 @@ class TestApiBackendClient(unittest.TestCase):
             gui_fasthtml.translation_jobs.pop(session_id, None)
 
 
+class TestServiceTranslateEndpoint(unittest.TestCase):
+    """POST /v1/service/translate maps ``service`` to kernel mode + model."""
+
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(api_server.app)
+
+    def _capture_submit(self):
+        """Patch the shared submission helper, capturing its delegated kwargs."""
+        captured: dict = {}
+
+        async def fake_submit(request, **kwargs):
+            captured.update(kwargs)
+            return {"job_id": "test-job"}
+
+        return captured, patch.object(api_server, "_submit_translate_job", fake_submit)
+
+    def test_model_map_constant(self):
+        self.assertEqual(
+            api_server._SERVICE_OPENAILIKED_MODEL,
+            {"fast": "qwen3.6-flash", "precise": "qwen3.6-plus"},
+        )
+
+    def test_fast_selects_flash_model_and_freezes_service(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate", data={"service": "fast", "link": "x"}
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"job_id": "test-job"})
+        self.assertEqual(captured["service"], "OpenAI-liked")
+        self.assertEqual(captured["mode_choice"], "fast")
+        self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-flash"})
+
+    def test_precise_selects_plus_model(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate", data={"service": "precise"}
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["mode_choice"], "precise")
+        self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-plus"})
+
+    def test_service_value_is_case_insensitive(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate", data={"service": "  PRECISE  "}
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["mode_choice"], "precise")
+        self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-plus"})
+
+    def test_default_service_is_fast(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post("/v1/service/translate", data={})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["mode_choice"], "fast")
+        self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-flash"})
+
+    def test_unknown_service_rejected_before_submitting(self):
+        called = {"submit": False}
+
+        async def fail_submit(request, **kwargs):
+            called["submit"] = True
+            return {}
+
+        with patch.object(api_server, "_submit_translate_job", fail_submit):
+            response = self._client().post(
+                "/v1/service/translate", data={"service": "medium"}
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("medium", response.json()["detail"])
+        self.assertFalse(called["submit"])
+
+    def test_other_fields_forwarded(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate",
+                data={
+                    "service": "fast",
+                    "lang_from": "German",
+                    "lang_to": "English",
+                    "page_range": "First",
+                    "threads": "8",
+                    "vfont": "myfont",
+                },
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["lang_from"], "German")
+        self.assertEqual(captured["lang_to"], "English")
+        self.assertEqual(captured["page_range"], "First")
+        self.assertEqual(captured["threads"], 8)
+        self.assertEqual(captured["vfont"], "myfont")
+
+
+class TestTranslateEndpointDelegation(unittest.TestCase):
+    """POST /v1/translate still forwards to the shared helper after refactor."""
+
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(api_server.app)
+
+    def test_service_and_mode_passed_through_without_overrides(self):
+        captured: dict = {}
+
+        async def fake_submit(request, **kwargs):
+            captured.update(kwargs)
+            return {"job_id": "test-job"}
+
+        with patch.object(api_server, "_submit_translate_job", fake_submit):
+            response = self._client().post(
+                "/v1/translate",
+                data={"service": "Google", "mode_choice": "precise", "link": "x"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["service"], "Google")
+        self.assertEqual(captured["mode_choice"], "precise")
+        # The plain endpoint never forces an env override.
+        self.assertIsNone(captured.get("env_overrides"))
+
+
+class _FakeStore:
+    """In-memory stand-in for gui_fasthtml._artifact_store."""
+
+    def __init__(self, available=True, files=None, jobs=None):
+        self._available = available
+        self._files = files or {}
+        self._jobs = jobs or []
+        self.put_calls = []
+
+    def available(self):
+        return self._available
+
+    def get_file_by_name(self, name):
+        if name in self._files:
+            return self._files[name], name
+        return None
+
+    def list_jobs(self, limit=500):
+        return list(self._jobs)
+
+    def put_file(self, data, filename, **fields):
+        self.put_calls.append((filename, fields))
+        return "id"
+
+
+class TestGuiMongoServing(unittest.TestCase):
+    """GUI retrieval routes read PDFs and the job log from MongoDB only."""
+
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(gui_fasthtml.create_app())
+
+    def test_file_route_serves_blob_from_store(self):
+        store = _FakeStore(files={"doc-mono.pdf": b"%PDF-mono"})
+        with patch.object(gui_fasthtml, "_artifact_store", store):
+            response = self._client().get("/file", params={"name": "doc-mono.pdf"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-mono")
+        self.assertIn("application/pdf", response.headers["content-type"])
+        self.assertIn("inline", response.headers["content-disposition"])
+
+    def test_file_route_404_when_missing(self):
+        with patch.object(gui_fasthtml, "_artifact_store", _FakeStore(files={})):
+            response = self._client().get("/file", params={"name": "missing.pdf"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_file_route_503_when_store_unavailable(self):
+        with patch.object(gui_fasthtml, "_artifact_store", _FakeStore(available=False)):
+            response = self._client().get("/file", params={"name": "doc.pdf"})
+        self.assertEqual(response.status_code, 503)
+
+    def test_download_route_uses_translated_attachment_name(self):
+        store = _FakeStore(files={"uuid-paper-mono.pdf": b"%PDF"})
+        with patch.object(gui_fasthtml, "_artifact_store", store):
+            response = self._client().get(
+                "/download", params={"name": "uuid-paper-mono.pdf", "variant": "mono"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response.headers["content-disposition"])
+        self.assertIn(
+            gui_fasthtml._translated_download_name("uuid-paper-mono.pdf", "mono"),
+            response.headers["content-disposition"],
+        )
+
+    def test_download_route_rejects_bad_variant(self):
+        with patch.object(gui_fasthtml, "_artifact_store", _FakeStore()):
+            response = self._client().get(
+                "/download", params={"name": "doc.pdf", "variant": "triple"}
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_job_log_renders_rows_from_store(self):
+        jobs = [
+            {
+                "job_id": "job-1",
+                "updated_at": 1_700_000_000.0,
+                "status": "done",
+                "client_ip": "10.0.0.1",
+                "service": "OpenAI-liked",
+                "files": ["a-mono.pdf", "a-dual.pdf"],
+                "elapsed_seconds": 3661,
+                "llm_requests": 5,
+                "llm_prompt_tokens": 12,
+                "llm_completion_tokens": 34,
+                "llm_total_tokens": 46,
+            }
+        ]
+        with patch.object(gui_fasthtml, "_artifact_store", _FakeStore(jobs=jobs)):
+            response = self._client().get("/job-log")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("job-1", response.text)
+        self.assertIn("OpenAI-liked", response.text)
+        self.assertIn("a-mono.pdf", response.text)
+        self.assertIn("1h 01m 01s", response.text)
+
+    def test_job_log_empty_when_store_has_no_jobs(self):
+        with patch.object(gui_fasthtml, "_artifact_store", _FakeStore(jobs=[])):
+            response = self._client().get("/job-log")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("No job log entries yet", response.text)
+
+
+class TestGuiJobLogTableHelper(unittest.TestCase):
+    def test_format_elapsed_hms(self):
+        self.assertEqual(gui_fasthtml._format_elapsed_hms(None), "0")
+        self.assertEqual(gui_fasthtml._format_elapsed_hms(0), "0")
+        self.assertEqual(gui_fasthtml._format_elapsed_hms(5), "5s")
+        self.assertEqual(gui_fasthtml._format_elapsed_hms(125), "2m 05s")
+        self.assertEqual(gui_fasthtml._format_elapsed_hms(3661), "1h 01m 01s")
+
+
 class TestFrontendMetricsEndpoint(unittest.TestCase):
     def _client(self):
         from starlette.testclient import TestClient

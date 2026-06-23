@@ -936,27 +936,35 @@ def ollama_models(host: str = OllamaTranslator.envs["OLLAMA_HOST"]) -> dict:
         ) from exc
 
 
-@app.post("/v1/translate", status_code=202)
-async def create_translate_job(
-    request: Request,
-    file: Optional[UploadFile] = File(None),
-    link: Annotated[str, Form()] = "",
-    service: Annotated[str, Form()] = "Google",
-    lang_from: Annotated[str, Form()] = "English",
-    lang_to: Annotated[str, Form()] = "Simplified Chinese",
-    page_range: Annotated[str, Form()] = "All",
-    page_input: Annotated[str, Form()] = "",
-    prompt: Annotated[str, Form()] = "",
-    threads: Annotated[int, Form()] = 4,
-    skip_subset_fonts: Annotated[bool, Form()] = False,
-    ignore_cache: Annotated[bool, Form()] = False,
-    vfont: Annotated[str, Form()] = "",
-    mode_choice: Annotated[str, Form()] = "fast",
-) -> dict:
-    """Submit a translation job.
+# OpenAI-liked model chosen by the `service` knob on POST /v1/service/translate.
+_SERVICE_OPENAILIKED_MODEL = {
+    "fast": "qwen3.6-flash",
+    "precise": "qwen3.6-plus",
+}
 
-    Returns 202 Accepted with ``{"job_id": "<uuid>"}`` immediately.
-    Poll ``GET /v1/translate/{job_id}`` for status.
+
+async def _submit_translate_job(
+    request: Request,
+    *,
+    file: Optional[UploadFile],
+    link: str,
+    service: str,
+    lang_from: str,
+    lang_to: str,
+    page_range: str,
+    page_input: str,
+    prompt: str,
+    threads: int,
+    skip_subset_fonts: bool,
+    ignore_cache: bool,
+    vfont: str,
+    mode_choice: str,
+    env_overrides: dict[str, str] | None = None,
+) -> dict:
+    """Core translation-job submission shared by the public translate endpoints.
+
+    ``env_overrides`` force-sets resolved translator envs (e.g. selecting an
+    OpenAI-liked model) after the per-request envs are resolved.
     """
     mode_choice = _validate_mode_choice(mode_choice)
 
@@ -972,6 +980,8 @@ async def create_translate_job(
     while (value := form.get(f"env_{len(submitted_envs)}")) is not None:
         submitted_envs.append(str(value))
     envs = _resolve_translator_envs(service, submitted_envs)
+    if env_overrides:
+        envs.update(env_overrides)
     if service == "Ollama":
         _validate_ollama_envs(envs)
         logger.info(
@@ -1073,6 +1083,97 @@ async def create_translate_job(
     ).start()
 
     return {"job_id": job_id}
+
+
+@app.post("/v1/translate", status_code=202)
+async def create_translate_job(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    link: Annotated[str, Form()] = "",
+    service: Annotated[str, Form()] = "Google",
+    lang_from: Annotated[str, Form()] = "English",
+    lang_to: Annotated[str, Form()] = "Simplified Chinese",
+    page_range: Annotated[str, Form()] = "All",
+    page_input: Annotated[str, Form()] = "",
+    prompt: Annotated[str, Form()] = "",
+    threads: Annotated[int, Form()] = 4,
+    skip_subset_fonts: Annotated[bool, Form()] = False,
+    ignore_cache: Annotated[bool, Form()] = False,
+    vfont: Annotated[str, Form()] = "",
+    mode_choice: Annotated[str, Form()] = "fast",
+) -> dict:
+    """Submit a translation job.
+
+    Returns 202 Accepted with ``{"job_id": "<uuid>"}`` immediately.
+    Poll ``GET /v1/translate/{job_id}`` for status.
+    """
+    return await _submit_translate_job(
+        request,
+        file=file,
+        link=link,
+        service=service,
+        lang_from=lang_from,
+        lang_to=lang_to,
+        page_range=page_range,
+        page_input=page_input,
+        prompt=prompt,
+        threads=threads,
+        skip_subset_fonts=skip_subset_fonts,
+        ignore_cache=ignore_cache,
+        vfont=vfont,
+        mode_choice=mode_choice,
+    )
+
+
+@app.post("/v1/service/translate", status_code=202)
+async def create_translate_job_via_service(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    link: Annotated[str, Form()] = "",
+    service: Annotated[str, Form()] = "fast",
+    lang_from: Annotated[str, Form()] = "English",
+    lang_to: Annotated[str, Form()] = "Simplified Chinese",
+    page_range: Annotated[str, Form()] = "All",
+    page_input: Annotated[str, Form()] = "",
+    prompt: Annotated[str, Form()] = "",
+    threads: Annotated[int, Form()] = 4,
+    skip_subset_fonts: Annotated[bool, Form()] = False,
+    ignore_cache: Annotated[bool, Form()] = False,
+    vfont: Annotated[str, Form()] = "",
+) -> dict:
+    """Submit a translation job driven by ``service`` (``fast`` / ``precise``).
+
+    ``service`` is the renamed/exposed ``mode_choice``; the translator is frozen
+    to ``OpenAI-liked`` and ``service`` also selects the model:
+    ``fast`` -> ``qwen3.6-flash``, ``precise`` -> ``qwen3.6-plus``.
+
+    Returns 202 Accepted with ``{"job_id": "<uuid>"}`` immediately.
+    """
+    mode = (service or "fast").strip().lower()
+    model = _SERVICE_OPENAILIKED_MODEL.get(mode)
+    if model is None:
+        raise HTTPException(
+            400,
+            f"Unknown service '{service}'. "
+            f"Valid values: {sorted(_SERVICE_OPENAILIKED_MODEL)}",
+        )
+    return await _submit_translate_job(
+        request,
+        file=file,
+        link=link,
+        service="OpenAI-liked",
+        lang_from=lang_from,
+        lang_to=lang_to,
+        page_range=page_range,
+        page_input=page_input,
+        prompt=prompt,
+        threads=threads,
+        skip_subset_fonts=skip_subset_fonts,
+        ignore_cache=ignore_cache,
+        vfont=vfont,
+        mode_choice=mode,
+        env_overrides={"OPENAILIKED_MODEL": model},
+    )
 
 
 @app.get("/v1/translate/{job_id}")
