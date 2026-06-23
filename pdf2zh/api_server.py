@@ -471,10 +471,21 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
                 JOB_LOG.write_text(header + separator, encoding="utf-8")
             with JOB_LOG.open("a", encoding="utf-8") as handle:
                 handle.write("| " + " | ".join(_job_log_cell(value) for value in row) + " |\n")
-            fm_header = "| timestamp | llm_duration | generated_tokens | response |\n"
+            fm_header = "| timestamp | api_time | completion | response |\n"
             fm_separator = "|---|---:|---:|---|\n"
             fm_row = [timestamp, api_time_s, f"{completion_n:,}" if completion_n else "0", response]
             FRONTEND_METRICS.parent.mkdir(parents=True, exist_ok=True)
+            if FRONTEND_METRICS.exists() and FRONTEND_METRICS.stat().st_size > 0:
+                fm_text = FRONTEND_METRICS.read_text(encoding="utf-8")
+                if fm_text.startswith("| timestamp | llm_duration |"):
+                    FRONTEND_METRICS.write_text(
+                        fm_text.replace(
+                            "| timestamp | llm_duration | generated_tokens | response |",
+                            "| timestamp | api_time | completion | response |",
+                            1,
+                        ),
+                        encoding="utf-8",
+                    )
             if not FRONTEND_METRICS.exists() or FRONTEND_METRICS.stat().st_size == 0:
                 FRONTEND_METRICS.write_text(fm_header + fm_separator, encoding="utf-8")
             with FRONTEND_METRICS.open("a", encoding="utf-8") as handle:
