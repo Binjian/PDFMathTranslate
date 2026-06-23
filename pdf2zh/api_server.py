@@ -1286,6 +1286,23 @@ def download_both_results(
     )
 
 
+@app.get("/v1/translate/{job_id}/record")
+def get_job_record(job_id: str) -> dict:
+    """Return the persisted job-artefact metadata document from MongoDB.
+
+    This is the same document written in ``_append_job_log`` (status, service,
+    client IP, file names, LLM usage, timings) plus the ``events`` audit trail.
+    Declared before the ``{variant}`` route so the literal ``record`` path wins
+    matching.
+    """
+    if not _artifact_store.available():
+        raise HTTPException(503, "Artifact storage (MongoDB) is unavailable")
+    record = _artifact_store.get(job_id)
+    if record is None:
+        raise HTTPException(404, "Job record not found")
+    return record
+
+
 @app.get("/v1/translate/{job_id}/{variant}")
 def download_result(job_id: str, variant: str) -> Response:
     """Download the translated PDF from MongoDB.  ``variant`` is ``mono``/``dual``."""

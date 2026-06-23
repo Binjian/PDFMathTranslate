@@ -867,6 +867,71 @@ class TestDownloadBothEndpoint(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
 
 
+class TestJobRecordEndpoint(unittest.TestCase):
+    """GET /v1/translate/{job_id}/record returns the MongoDB metadata document."""
+
+    class _Store:
+        def __init__(self, available=True, record=None):
+            self._available = available
+            self._record = record
+
+        def available(self):
+            return self._available
+
+        def get(self, job_id):
+            if self._record and self._record.get("_id") == job_id:
+                return self._record
+            return None
+
+        def get_file(self, query):
+            if query.get("variant") == "mono":
+                return (b"%PDF", "doc-mono.pdf")
+            return None
+
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(api_server.app)
+
+    def _doc(self):
+        return {
+            "_id": "job-1",
+            "job_id": "job-1",
+            "status": "done",
+            "service": "OpenAI-liked",
+            "files": ["a-mono.pdf", "a-dual.pdf"],
+            "llm_total_tokens": 46,
+            "events": [
+                {"timestamp": "2026-06-23", "status": "done", "response": {"x": 1}}
+            ],
+        }
+
+    def test_returns_record(self):
+        with patch.object(api_server, "_artifact_store", self._Store(record=self._doc())):
+            response = self._client().get("/v1/translate/job-1/record")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["job_id"], "job-1")
+        self.assertEqual(body["status"], "done")
+        self.assertEqual(body["events"][0]["status"], "done")
+
+    def test_404_when_record_missing(self):
+        with patch.object(api_server, "_artifact_store", self._Store(record=self._doc())):
+            response = self._client().get("/v1/translate/unknown/record")
+        self.assertEqual(response.status_code, 404)
+
+    def test_503_when_store_unavailable(self):
+        with patch.object(api_server, "_artifact_store", self._Store(available=False)):
+            response = self._client().get("/v1/translate/job-1/record")
+        self.assertEqual(response.status_code, 503)
+
+    def test_record_does_not_shadow_variant_route(self):
+        with patch.object(api_server, "_artifact_store", self._Store(record=self._doc())):
+            response = self._client().get("/v1/translate/job-1/mono")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF")
+
+
 class TestFrontendMetricsEndpoint(unittest.TestCase):
     def _client(self):
         from starlette.testclient import TestClient
