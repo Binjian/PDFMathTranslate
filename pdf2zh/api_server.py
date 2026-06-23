@@ -12,6 +12,10 @@ Environment variables:
     PDF2ZH_API_FRONTEND_METRICS    Frontend metrics Markdown table (default: <output>/frontend_metrics.md)
     PDF2ZH_API_HOST     Bind host for run_api_server() (default: 0.0.0.0)
     PDF2ZH_API_PORT     Port for run_api_server() (default: 7861)
+    PDF2ZH_API_MONGODB_URI         MongoDB URI for durable job-artefact metadata
+                                   (optional; disabled when unset)
+    PDF2ZH_API_MONGODB_DB          MongoDB database name (default: pdf2zh)
+    PDF2ZH_API_MONGODB_COLLECTION  MongoDB collection name (default: job_artifacts)
 """
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ from fastapi.responses import FileResponse
 
 from pdf2zh.config import ConfigManager
 from pdf2zh.kernel import KernelRegistry
+from pdf2zh.mongo_store import JobArtifactStore
 from pdf2zh.translator import (
     AnythingLLMTranslator,
     ArgosTranslator,
@@ -72,6 +77,10 @@ JOB_LOG = Path(
 FRONTEND_METRICS = Path(
     ConfigManager.get("PDF2ZH_API_FRONTEND_METRICS") or str(OUTPUT_DIR / "frontend_metrics.md")
 )
+
+# Optional MongoDB persistence of job-artefact metadata. Disabled (no-op) unless
+# PDF2ZH_API_MONGODB_URI is configured; see pdf2zh.mongo_store.
+_artifact_store = JobArtifactStore()
 
 # ── Translator / language / page lookup tables ────────────────────────────────
 
@@ -493,6 +502,36 @@ def _append_job_log(job_id: str, job: dict, response: dict) -> None:
     except Exception:
         logger.exception("Unable to update API job log at %s", JOB_LOG)
 
+    # Mirror the event into MongoDB when configured (no-op otherwise). Kept in
+    # its own try/except so file logging and Mongo persistence stay independent.
+    try:
+        document = {
+            "status": response.get("status", ""),
+            "client_ip": job.get("client_ip", ""),
+            "service": job.get("service", ""),
+            "files": _job_file_names(job),
+            "source": job.get("source"),
+            "mono": job.get("mono"),
+            "dual": job.get("dual"),
+            "removed_files": job.get("removed_files"),
+            "elapsed_seconds": elapsed,
+            "llm_usage": usage,
+            "llm_requests": requests_n,
+            "llm_prompt_tokens": prompt_n,
+            "llm_completion_tokens": completion_n,
+            "llm_total_tokens": total_n,
+            "started_at": job.get("started_at"),
+            "finished_at": job.get("finished_at"),
+        }
+        event = {
+            "timestamp": timestamp,
+            "status": response.get("status", ""),
+            "response": response,
+        }
+        _artifact_store.record(job_id, document, event)
+    except Exception:
+        logger.exception("Unable to persist job %s artefacts to MongoDB", job_id)
+
 
 def _selected_pages(page_range: str, page_input: str) -> Optional[list[int]]:
     if page_range in PAGE_MAP:
@@ -827,7 +866,10 @@ def _monitor_job(
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    yield
+    try:
+        yield
+    finally:
+        _artifact_store.close()
 
 
 app = FastAPI(title="pdf2zh Translation API", version="1.0.0", lifespan=_lifespan)
@@ -943,6 +985,28 @@ async def create_translate_job(
         "started_at": time.time(),
         "finished_at": None,
     }
+
+    # Persist the initial job snapshot so MongoDB has the record even if the
+    # worker crashes before any lifecycle event is logged (no-op when disabled).
+    try:
+        _artifact_store.record(
+            job_id,
+            {
+                "status": "running",
+                "client_ip": _jobs[job_id]["client_ip"],
+                "service": service,
+                "files": _job_file_names(_jobs[job_id]),
+                "source": str(file_path),
+                "started_at": _jobs[job_id]["started_at"],
+            },
+            {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                "status": "submitted",
+                "response": {"job_id": job_id, "status": "running"},
+            },
+        )
+    except Exception:
+        logger.exception("Unable to persist job %s submission to MongoDB", job_id)
 
     params = {
         "file_path": str(file_path),
