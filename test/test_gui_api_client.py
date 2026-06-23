@@ -777,6 +777,96 @@ class TestQuickServiceTab(unittest.TestCase):
             gui_fasthtml.translation_jobs.pop(session_id, None)
 
 
+class TestDownloadBothEndpoint(unittest.TestCase):
+    """GET /v1/translate/{job_id}/both returns mono + dual, unzipped by default."""
+
+    class _Store:
+        def __init__(self, available=True, files=None):
+            self._available = available
+            self._files = files or {}
+
+        def available(self):
+            return self._available
+
+        def get_file(self, query):
+            return self._files.get((query.get("job_id"), query.get("variant")))
+
+    def _client(self):
+        from starlette.testclient import TestClient
+
+        return TestClient(api_server.app)
+
+    def _both(self):
+        return {
+            ("job-1", "mono"): (b"%PDF-mono", "doc-mono.pdf"),
+            ("job-1", "dual"): (b"%PDF-dual", "doc-dual.pdf"),
+        }
+
+    def _parse_multipart(self, response):
+        import email
+
+        raw = (
+            b"Content-Type: "
+            + response.headers["content-type"].encode()
+            + b"\r\n\r\n"
+            + response.content
+        )
+        return email.message_from_bytes(raw).get_payload()
+
+    def test_default_returns_both_unzipped_as_multipart(self):
+        with patch.object(api_server, "_artifact_store", self._Store(files=self._both())):
+            response = self._client().get("/v1/translate/job-1/both")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers["content-type"].startswith("multipart/mixed"))
+        parts = self._parse_multipart(response)
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts[0].get_content_type(), "application/pdf")
+        self.assertEqual(parts[0].get_filename(), "doc-mono.pdf")
+        self.assertEqual(parts[0].get_payload(decode=True), b"%PDF-mono")
+        self.assertEqual(parts[1].get_filename(), "doc-dual.pdf")
+        self.assertEqual(parts[1].get_payload(decode=True), b"%PDF-dual")
+
+    def test_zip_query_returns_archive(self):
+        import io
+        import zipfile
+
+        with patch.object(api_server, "_artifact_store", self._Store(files=self._both())):
+            response = self._client().get("/v1/translate/job-1/both", params={"zip": "true"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/zip")
+        self.assertIn('filename="job-1.zip"', response.headers["content-disposition"])
+        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        self.assertEqual(sorted(archive.namelist()), ["doc-dual.pdf", "doc-mono.pdf"])
+        self.assertEqual(archive.read("doc-mono.pdf"), b"%PDF-mono")
+        self.assertEqual(archive.read("doc-dual.pdf"), b"%PDF-dual")
+
+    def test_both_does_not_shadow_variant_route(self):
+        with patch.object(api_server, "_artifact_store", self._Store(files=self._both())):
+            response = self._client().get("/v1/translate/job-1/mono")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-mono")
+
+    def test_404_when_a_variant_missing(self):
+        partial = {("job-2", "mono"): (b"x", "m.pdf")}
+        with patch.object(api_server, "_artifact_store", self._Store(files=partial)):
+            response = self._client().get("/v1/translate/job-2/both")
+        self.assertEqual(response.status_code, 404)
+
+    def test_503_when_store_unavailable(self):
+        with patch.object(api_server, "_artifact_store", self._Store(available=False)):
+            response = self._client().get("/v1/translate/job-1/both")
+        self.assertEqual(response.status_code, 503)
+
+    def test_409_while_running(self):
+        api_server._jobs["job-run"] = {"status": "running"}
+        try:
+            with patch.object(api_server, "_artifact_store", self._Store(files=self._both())):
+                response = self._client().get("/v1/translate/job-run/both")
+        finally:
+            api_server._jobs.pop("job-run", None)
+        self.assertEqual(response.status_code, 409)
+
+
 class TestFrontendMetricsEndpoint(unittest.TestCase):
     def _client(self):
         from starlette.testclient import TestClient

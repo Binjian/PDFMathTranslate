@@ -19,6 +19,7 @@ Environment variables:
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 import multiprocessing
@@ -28,12 +29,13 @@ import shutil
 import threading
 import time
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Optional
 
 import requests as _requests
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
@@ -1223,6 +1225,65 @@ def remove_job_artifacts(job_id: str) -> dict:
     if not job:
         raise HTTPException(404, "Job not found")
     return _cleanup_job_artifacts(job_id, job)
+
+
+@app.get("/v1/translate/{job_id}/both")
+def download_both_results(
+    job_id: str,
+    as_zip: Annotated[bool, Query(alias="zip")] = False,
+) -> Response:
+    """Download both translated PDFs (mono + dual) in a single response.
+
+    By default the two PDFs are returned **unzipped** as a ``multipart/mixed``
+    response. Pass ``?zip=true`` to receive them bundled as a ZIP archive.
+
+    Declared before the ``{variant}`` route so the literal ``both`` path wins
+    matching. Returns 404 unless both variants are present in MongoDB.
+    """
+    # A running job has nothing to serve yet; report that distinctly.
+    job = _jobs.get(job_id)
+    if job and job["status"] == "running":
+        raise HTTPException(409, f"Job not finished (status: {job['status']})")
+    if not _artifact_store.available():
+        raise HTTPException(503, "Artifact storage (MongoDB) is unavailable")
+
+    files: list[tuple[str, bytes]] = []
+    for variant in ("mono", "dual"):
+        result = _artifact_store.get_file({"job_id": job_id, "variant": variant})
+        if result is None:
+            raise HTTPException(404, f"{variant} file not found")
+        data, filename = result
+        files.append((filename, data))
+
+    if as_zip:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for filename, data in files:
+                archive.writestr(filename, data)
+        return Response(
+            content=buffer.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{job_id}.zip"'},
+        )
+
+    # Default: return both PDFs unzipped as a multipart/mixed payload.
+    boundary = uuid.uuid4().hex
+    chunks: list[bytes] = []
+    for filename, data in files:
+        chunks.append(
+            (
+                f"--{boundary}\r\n"
+                f"Content-Type: application/pdf\r\n"
+                f'Content-Disposition: attachment; filename="{filename}"\r\n\r\n'
+            ).encode("utf-8")
+        )
+        chunks.append(data)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return Response(
+        content=b"".join(chunks),
+        media_type=f"multipart/mixed; boundary={boundary}",
+    )
 
 
 @app.get("/v1/translate/{job_id}/{variant}")
