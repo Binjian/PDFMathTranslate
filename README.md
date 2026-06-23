@@ -10,10 +10,13 @@
 - [API reference](#api)
   - [Health check](#health)
   - [Submit a translation job](#submit)
+  - [Submit via service (fast/precise)](#service-submit)
   - [Poll job status](#status)
   - [Cancel a job](#cancel)
   - [Remove generated artifacts](#artifacts)
   - [Download results](#download)
+  - [Download both PDFs in one response](#download-both)
+  - [Get the job record](#record)
 - [Using the FastHTML GUI as a client](#gui-client)
 - [Running both together](#together)
 - [Code changes summary](#changes)
@@ -24,6 +27,8 @@
 <h2 id="overview">Overview</h2>
 
 `pdf2zh` ships a lightweight **FastAPI translation backend** (`pdf2zh/api_server.py`) that exposes the full translation engine over HTTP — no Redis or Celery required.
+
+Finished PDFs and job metadata are persisted to **MongoDB** (PDF binaries in GridFS, metadata in a collection), which is the source of truth for all artefact retrieval; the on-disk output folder is only transient scratch. Configure it with `PDF2ZH_API_MONGODB_URI` (see [Environment variables](#env)).
 
 It is an alternative to the existing Flask/Celery backend (`pdf2zh --flask`).  Key differences:
 
@@ -139,11 +144,14 @@ the translated PDF when the job is complete.
 
 | Variable | Default | Description |
 |---|---|---|
-| `PDF2ZH_API_OUTPUT` | `pdf2zh_api_files` | Directory where translated PDFs are stored by the API server |
+| `PDF2ZH_API_OUTPUT` | `pdf2zh_api_files` | Transient scratch directory used while a job runs. Finished PDFs are ingested into MongoDB (the source of truth) and the per-job folder is removed |
 | `PDF2ZH_API_JOB_LOG` | `<PDF2ZH_API_OUTPUT>/job_log.md` | Markdown table recording client IP, job files, elapsed time, LLM usage for Ollama, OpenAI-liked, and Ali Qwen-Translation, and completed, failed, cancelled, or cleanup responses |
 | `PDF2ZH_API_HOST` | `0.0.0.0` | Bind address used by `run_api_server()` |
 | `PDF2ZH_API_PORT` | `7861` | Port used by `run_api_server()` |
 | `PDF2ZH_API_BASE_URL` | _(empty)_ | **GUI only** — URL of the FastAPI backend. When set, the FastHTML GUI delegates all translation to that server. Example: `http://127.0.0.1:7861` |
+| `PDF2ZH_API_MONGODB_URI` | _(empty)_ | MongoDB connection URI (falls back to `MONGODB_URI`). PDFs are stored in GridFS and metadata in a collection; **artifact retrieval requires this**. When unset, the download/record endpoints return `503` |
+| `PDF2ZH_API_MONGODB_DB` | `pdf2zh` | MongoDB database name |
+| `PDF2ZH_API_MONGODB_COLLECTION` | `job_artifacts` | Metadata collection name (GridFS buckets use the `<collection>_fs` prefix) |
 
 [⬆️ Back to top](#toc)
 
@@ -229,6 +237,40 @@ Please refer to the test script in [test/test_translate_service.sh](../test/test
 
 `English`, `Simplified Chinese`, `Traditional Chinese`, `French`, `German`,
 `Japanese`, `Korean`, `Russian`, `Spanish`, `Italian`
+
+---
+
+<h3 id="service-submit">POST /v1/service/translate</h3>
+
+A simplified submission that exposes a single `service` knob and resolves the
+translator, its credentials and the model **server-side**. The translator is
+frozen to `OpenAI-liked`, and `service` selects both the kernel mode and the
+model:
+
+| `service` | kernel mode | model (`OPENAILIKED_MODEL`) |
+|---|---|---|
+| `fast` (default) | `fast` | `qwen3.6-flash` |
+| `precise` | `precise` | `qwen3.6-plus` |
+
+It accepts the same `file`/`link`, `lang_from`, `lang_to`, `page_range`,
+`page_input`, `prompt`, `threads`, `skip_subset_fonts`, `ignore_cache` and
+`vfont` fields as `POST /v1/translate`, but **not** `service` as a translator
+name, `mode_choice`, or `env_*` credentials. Returns `202` with a `job_id`, or
+`400` for an unknown `service`.
+
+```bash
+curl http://127.0.0.1:7861/v1/service/translate \
+  -F "file=@paper.pdf;type=application/pdf" \
+  -F "service=precise" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese"
+```
+
+```json
+{ "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a" }
+```
+
+Poll status and download results exactly as for `POST /v1/translate`.
 
 ---
 
@@ -319,9 +361,10 @@ curl -X DELETE \
 
 <h3 id="download">GET /v1/translate/{job_id}/{variant}</h3>
 
-Download a translated PDF.  `variant` is `mono` (translated language only) or
-`dual` (original and translated pages interleaved).  Returns `409` if the job
-is not yet finished.
+Download a translated PDF **from MongoDB**.  `variant` is `mono` (translated
+language only) or `dual` (original and translated pages interleaved).  Returns
+`409` if the job is still running, `404` if the file is not stored, and `503`
+if MongoDB is unavailable.
 
 ```bash
 # Monolingual output
@@ -331,6 +374,49 @@ curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/mon
 # Bilingual output
 curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/dual \
   --output paper-dual.pdf
+```
+
+---
+
+<h3 id="download-both">GET /v1/translate/{job_id}/both</h3>
+
+Download **both** PDFs (mono + dual) in a single response. By default they are
+returned **unzipped** as `multipart/mixed`; pass `?zip=true` to receive a single
+ZIP archive. Same `409`/`404`/`503` behaviour as the variant download.
+
+```bash
+# Unzipped (multipart/mixed) — default
+curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/both \
+  --output both.multipart
+
+# Zipped archive
+curl "http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/both?zip=true" \
+  --output result.zip
+```
+
+---
+
+<h3 id="record">GET /v1/translate/{job_id}/record</h3>
+
+Return the persisted job-artefact **metadata document** from MongoDB — status,
+service, client IP, file names, LLM usage and token counters, timings, and the
+`events` audit trail. Returns `404` if there is no record and `503` if MongoDB
+is unavailable.
+
+```bash
+curl http://127.0.0.1:7861/v1/translate/d9894125-2f4e-45ea-9d93-1a9068d2045a/record
+```
+
+```json
+{
+  "_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
+  "job_id": "d9894125-2f4e-45ea-9d93-1a9068d2045a",
+  "status": "done",
+  "service": "OpenAI-liked",
+  "files": ["paper-mono.pdf", "paper-dual.pdf"],
+  "llm_total_tokens": 4098,
+  "events": [{ "timestamp": "2026-06-23 10:00:00", "status": "done", "response": {} }]
+}
 ```
 
 **Python client example:**
