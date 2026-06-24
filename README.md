@@ -149,7 +149,7 @@ the translated PDF when the job is complete.
 | `PDF2ZH_API_HOST` | `0.0.0.0` | Bind address used by `run_api_server()` |
 | `PDF2ZH_API_PORT` | `7861` | Port used by `run_api_server()` |
 | `PDF2ZH_API_BASE_URL` | _(empty)_ | **GUI only** — URL of the FastAPI backend. When set, the FastHTML GUI delegates all translation to that server. Example: `http://127.0.0.1:7861` |
-| `PDF2ZH_API_MONGODB_URI` | _(empty)_ | MongoDB connection URI (falls back to `MONGODB_URI`). PDFs are stored in GridFS and metadata in a collection; **artifact retrieval requires this**. When unset, the download/record endpoints return `503` |
+| `PDF2ZH_API_MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection URI (falls back to `MONGODB_URI`, then this local default). PDFs are stored in GridFS and metadata in a collection; **artifact retrieval requires a reachable MongoDB**. When MongoDB is unreachable, the download/record endpoints return `503` |
 | `PDF2ZH_API_MONGODB_DB` | `pdf2zh` | MongoDB database name |
 | `PDF2ZH_API_MONGODB_COLLECTION` | `job_artifacts` | Metadata collection name (GridFS buckets use the `<collection>_fs` prefix) |
 

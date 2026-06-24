@@ -17,8 +17,8 @@ translation. Retrieval, by contrast, *requires* MongoDB: callers use
 
 Environment variables:
     PDF2ZH_API_MONGODB_URI         MongoDB connection URI (falls back to
-                                   MONGODB_URI). Retrieval is unavailable when
-                                   unset.
+                                   MONGODB_URI, then to a local default of
+                                   ``mongodb://localhost:27017``).
     PDF2ZH_API_MONGODB_DB          Database name (default: pdf2zh)
     PDF2ZH_API_MONGODB_COLLECTION  Metadata collection name (default:
                                    job_artifacts). GridFS buckets use the
@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 # Keep server-selection snappy so an unreachable Mongo fails fast instead of
 # stalling job lifecycle callbacks.
 _SERVER_SELECTION_TIMEOUT_MS = 2000
+
+# Default MongoDB URI when neither PDF2ZH_API_MONGODB_URI nor MONGODB_URI is set.
+DEFAULT_MONGODB_URI = "mongodb://localhost:27017"
 
 
 class JobArtifactStore:
@@ -57,7 +60,7 @@ class JobArtifactStore:
         self._uri = (
             ConfigManager.get("PDF2ZH_API_MONGODB_URI")
             or ConfigManager.get("MONGODB_URI")
-            or ""
+            or DEFAULT_MONGODB_URI
         ).strip()
         self._db_name = ConfigManager.get("PDF2ZH_API_MONGODB_DB", "pdf2zh")
         self._collection_name = ConfigManager.get(

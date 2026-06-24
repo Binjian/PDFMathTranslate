@@ -12,8 +12,8 @@ Environment variables:
     PDF2ZH_API_FRONTEND_METRICS    Frontend metrics Markdown table (default: <output>/frontend_metrics.md)
     PDF2ZH_API_HOST     Bind host for run_api_server() (default: 0.0.0.0)
     PDF2ZH_API_PORT     Port for run_api_server() (default: 7861)
-    PDF2ZH_API_MONGODB_URI         MongoDB URI for durable job-artefact metadata
-                                   (optional; disabled when unset)
+    PDF2ZH_API_MONGODB_URI         MongoDB URI for durable job-artefact storage
+                                   (default: mongodb://localhost:27017)
     PDF2ZH_API_MONGODB_DB          MongoDB database name (default: pdf2zh)
     PDF2ZH_API_MONGODB_COLLECTION  MongoDB collection name (default: job_artifacts)
 """
@@ -80,8 +80,8 @@ FRONTEND_METRICS = Path(
     ConfigManager.get("PDF2ZH_API_FRONTEND_METRICS") or str(OUTPUT_DIR / "frontend_metrics.md")
 )
 
-# Optional MongoDB persistence of job-artefact metadata. Disabled (no-op) unless
-# PDF2ZH_API_MONGODB_URI is configured; see pdf2zh.mongo_store.
+# MongoDB persistence of job artefacts. Defaults to mongodb://localhost:27017;
+# override with PDF2ZH_API_MONGODB_URI. See pdf2zh.mongo_store.
 _artifact_store = JobArtifactStore()
 
 # ── Translator / language / page lookup tables ────────────────────────────────

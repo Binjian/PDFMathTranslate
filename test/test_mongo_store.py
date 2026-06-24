@@ -49,13 +49,27 @@ def _store_with_config(values: dict) -> JobArtifactStore:
         return JobArtifactStore()
 
 
+def _disabled_store() -> JobArtifactStore:
+    """A store whose connection has already failed — disabled and a no-op.
+
+    The URI now defaults to localhost, so the disabled state is reached via a
+    failed connection rather than an empty config. Forcing ``_init_failed``
+    makes every method a no-op without importing pymongo or touching a server.
+    """
+    store = _store_with_config({})
+    store._init_failed = True
+    return store
+
+
 class TestStoreConfiguration(unittest.TestCase):
     """Construction reads connection settings from ConfigManager."""
 
-    def test_disabled_when_no_uri(self):
+    def test_defaults_to_localhost_uri(self):
         store = _store_with_config({})
+        # No URI configured -> falls back to the local default; not yet connected.
+        self.assertEqual(store._uri, mongo_store.DEFAULT_MONGODB_URI)
+        self.assertEqual(store._uri, "mongodb://localhost:27017")
         self.assertFalse(store.enabled)
-        # Defaults still resolved even when disabled.
         self.assertEqual(store._db_name, "pdf2zh")
         self.assertEqual(store._collection_name, "job_artifacts")
 
@@ -90,10 +104,10 @@ class TestStoreConfiguration(unittest.TestCase):
 
 
 class TestDisabledStoreIsNoOp(unittest.TestCase):
-    """With no URI, every method is a safe no-op and never imports pymongo."""
+    """A disabled store (failed connection) is a safe no-op, never imports pymongo."""
 
     def setUp(self):
-        self.store = _store_with_config({})
+        self.store = _disabled_store()
 
     def test_record_does_not_connect(self):
         fake = MagicMock()
@@ -331,7 +345,7 @@ def _connected_store():
 
 class TestAvailable(unittest.TestCase):
     def test_available_false_when_disabled(self):
-        self.assertFalse(_store_with_config({}).available())
+        self.assertFalse(_disabled_store().available())
 
     def test_available_true_when_connected(self):
         store = _store_with_config({"PDF2ZH_API_MONGODB_URI": "mongodb://db"})
@@ -341,11 +355,11 @@ class TestAvailable(unittest.TestCase):
 
 class TestGridFSFiles(unittest.TestCase):
     def test_put_disabled_returns_none(self):
-        store = _store_with_config({})
+        store = _disabled_store()
         self.assertIsNone(store.put_file(b"data", "x.pdf"))
 
     def test_get_disabled_returns_none(self):
-        store = _store_with_config({})
+        store = _disabled_store()
         self.assertIsNone(store.get_file_by_name("x.pdf"))
 
     def test_put_and_get_latest_version_by_name(self):
@@ -403,7 +417,7 @@ class TestGridFSFiles(unittest.TestCase):
 
 class TestListJobs(unittest.TestCase):
     def test_list_jobs_disabled_returns_empty(self):
-        self.assertEqual(_store_with_config({}).list_jobs(), [])
+        self.assertEqual(_disabled_store().list_jobs(), [])
 
     def test_list_jobs_sorted_query(self):
         client = _make_client()
