@@ -15,10 +15,13 @@ set -uo pipefail
 # (optionally) use_ollama to translate locally with Ollama instead of the
 # default OpenAI-liked backend.
 
+# Resolve sample PDFs relative to this script so it runs from any directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 API_BASE_URL="${API_BASE_URL:-http://10.2.2.94:7861}"
 # API_BASE_URL="${API_BASE_URL:-http://172.27.74.16:7861}"
-PDF_FILE_EN="${PDF_FILE:-attention_is_all_you_need_1706.03762v7.pdf}"
-PDF_FILE_ZH="${PDF_FILE:-attention_is_all_you_need_1706.03762v7_zh.pdf}"
+PDF_FILE_EN="${PDF_FILE:-${SCRIPT_DIR}/attention_is_all_you_need_1706.03762v7.pdf}"
+PDF_FILE_ZH="${PDF_FILE:-${SCRIPT_DIR}/attention_is_all_you_need_1706.03762v7_zh.pdf}"
 IGNORE_CACHE="${IGNORE_CACHE:-false}"
 OUTPUT_DIR="${OUTPUT_DIR:-service_api_output}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
@@ -56,6 +59,11 @@ run_case() {
 
   local pdf_file
   [[ "$lang_from" == "English" ]] && pdf_file="$PDF_FILE_EN" || pdf_file="$PDF_FILE_ZH"
+
+  if [[ ! -f "$pdf_file" ]]; then
+    echo "Sample PDF not found: ${pdf_file} (set PDF_FILE to override)" >&2
+    return 1
+  fi
 
   # The Ollama backend is opt-in via the use_ollama flag.
   local backend_args=()
