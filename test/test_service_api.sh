@@ -11,7 +11,9 @@ set -uo pipefail
 #   DELETE /v1/translate/{job_id}/artifacts  remove stored PDFs
 #
 # Unlike test_translate_service.sh, the translator, credentials and model are
-# resolved server-side; the client only chooses service=fast|precise.
+# resolved server-side; the client only chooses service=fast|precise and
+# (optionally) use_ollama to translate locally with Ollama instead of the
+# default OpenAI-liked backend.
 
 API_BASE_URL="${API_BASE_URL:-http://10.2.2.94:7861}"
 # API_BASE_URL="${API_BASE_URL:-http://172.27.74.16:7861}"
@@ -23,13 +25,19 @@ POLL_INTERVAL="${POLL_INTERVAL:-2}"
 MAX_POLLS="${MAX_POLLS:-600}"
 CURL=(curl --noproxy "*")
 
-# service knob — backend resolves translator/credentials/model:
-#   fast    -> qwen3.6-flash
-#   precise -> qwen3.6-plus
+# service knob — backend resolves translator/credentials/model. The model
+# depends on the backend:
+#   OpenAI-liked (default): fast -> qwen3.6-flash, precise -> qwen3.6-plus
+#   Ollama (use_ollama=true): fast -> gemma4:e4b,  precise -> qwen3.6:35b
 SERVICE_CASES=(
   "fast"
   "precise"
 )
+
+# Translation backend. "openai" uses the default OpenAI-liked qwen models;
+# "ollama" submits use_ollama=true. Override with e.g. BACKENDS="openai".
+BACKENDS="${BACKENDS:-openai ollama}"
+read -r -a BACKEND_CASES <<<"$BACKENDS"
 
 # lang_from|lang_to
 LANG_CASES=(
@@ -44,10 +52,14 @@ json_get() {
 }
 
 run_case() {
-  local service="$1" lang_from="$2" lang_to="$3"
+  local backend="$1" service="$2" lang_from="$3" lang_to="$4"
 
   local pdf_file
   [[ "$lang_from" == "English" ]] && pdf_file="$PDF_FILE_EN" || pdf_file="$PDF_FILE_ZH"
+
+  # The Ollama backend is opt-in via the use_ollama flag.
+  local backend_args=()
+  [[ "$backend" == "ollama" ]] && backend_args=(-F "use_ollama=true")
 
   echo "Submitting service job to ${API_BASE_URL}/v1/service/translate"
   local submit_response
@@ -58,7 +70,8 @@ run_case() {
       -F "service=${service}" \
       -F "lang_from=${lang_from}" \
       -F "lang_to=${lang_to}" \
-      -F "ignore_cache=${IGNORE_CACHE}"
+      -F "ignore_cache=${IGNORE_CACHE}" \
+      "${backend_args[@]}"
   )" || return 1
 
   local job_id
@@ -217,27 +230,29 @@ total=0
 passed=0
 failed_cases=()
 
-for service in "${SERVICE_CASES[@]}"; do
-  for lang_case in "${LANG_CASES[@]}"; do
-    IFS='|' read -r lang_from lang_to <<<"$lang_case"
-    total=$((total + 1))
-    case_label="service=${service} ${lang_from}->${lang_to}"
-    echo
-    echo "=============================================================="
-    echo "Case ${total}: ${case_label}"
-    echo "=============================================================="
-    # Comment the following case if you insist on testing the full supported functionalities.
-    if [[ "$lang_from" == "Simplified Chinese" && "$service" == "precise" ]]; then
-      echo "SKIP: ${case_label} (Simplified Chinese -> English with precise service is supported but skipped due to very long duration!)"
-      continue
-    fi
-    if run_case "$service" "$lang_from" "$lang_to"; then
-      passed=$((passed + 1))
-      echo "PASS: ${case_label}"
-    else
-      failed_cases+=("$case_label")
-      echo "FAIL: ${case_label}" >&2
-    fi
+for backend in "${BACKEND_CASES[@]}"; do
+  for service in "${SERVICE_CASES[@]}"; do
+    for lang_case in "${LANG_CASES[@]}"; do
+      IFS='|' read -r lang_from lang_to <<<"$lang_case"
+      total=$((total + 1))
+      case_label="backend=${backend} service=${service} ${lang_from}->${lang_to}"
+      echo
+      echo "=============================================================="
+      echo "Case ${total}: ${case_label}"
+      echo "=============================================================="
+      # Comment the following case if you insist on testing the full supported functionalities.
+      if [[ "$lang_from" == "Simplified Chinese" && "$service" == "precise" ]]; then
+        echo "SKIP: ${case_label} (Simplified Chinese -> English with precise service is supported but skipped due to very long duration!)"
+        continue
+      fi
+      if run_case "$backend" "$service" "$lang_from" "$lang_to"; then
+        passed=$((passed + 1))
+        echo "PASS: ${case_label}"
+      else
+        failed_cases+=("$case_label")
+        echo "FAIL: ${case_label}" >&2
+      fi
+    done
   done
 done
 

@@ -438,6 +438,12 @@ class TestServiceTranslateEndpoint(unittest.TestCase):
             {"fast": "qwen3.6-flash", "precise": "qwen3.6-plus"},
         )
 
+    def test_ollama_model_map_constant(self):
+        self.assertEqual(
+            api_server._SERVICE_OLLAMA_MODEL,
+            {"fast": "gemma4:e4b", "precise": "qwen3.6:35b"},
+        )
+
     def test_fast_selects_flash_model_and_freezes_service(self):
         captured, patcher = self._capture_submit()
         with patcher:
@@ -450,14 +456,16 @@ class TestServiceTranslateEndpoint(unittest.TestCase):
         self.assertEqual(captured["mode_choice"], "fast")
         self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-flash"})
 
-    def test_precise_selects_plus_model(self):
+    def test_precise_selects_plus_model_on_fast_kernel(self):
         captured, patcher = self._capture_submit()
         with patcher:
             response = self._client().post(
                 "/v1/service/translate", data={"service": "precise"}
             )
         self.assertEqual(response.status_code, 202)
-        self.assertEqual(captured["mode_choice"], "precise")
+        self.assertEqual(captured["service"], "OpenAI-liked")
+        # Both fast and precise run on the v1 (fast) kernel; only the model differs.
+        self.assertEqual(captured["mode_choice"], "fast")
         self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-plus"})
 
     def test_service_value_is_case_insensitive(self):
@@ -467,7 +475,7 @@ class TestServiceTranslateEndpoint(unittest.TestCase):
                 "/v1/service/translate", data={"service": "  PRECISE  "}
             )
         self.assertEqual(response.status_code, 202)
-        self.assertEqual(captured["mode_choice"], "precise")
+        self.assertEqual(captured["mode_choice"], "fast")
         self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-plus"})
 
     def test_default_service_is_fast(self):
@@ -513,6 +521,57 @@ class TestServiceTranslateEndpoint(unittest.TestCase):
         self.assertEqual(captured["page_range"], "First")
         self.assertEqual(captured["threads"], 8)
         self.assertEqual(captured["vfont"], "myfont")
+
+    def test_use_ollama_fast_routes_to_ollama_with_gemma(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate",
+                data={"service": "fast", "use_ollama": "true"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["service"], "Ollama")
+        self.assertEqual(captured["mode_choice"], "fast")
+        self.assertEqual(captured["env_overrides"], {"OLLAMA_MODEL": "gemma4:e4b"})
+
+    def test_use_ollama_precise_routes_to_ollama_with_qwen35b(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate",
+                data={"service": "precise", "use_ollama": "true"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["service"], "Ollama")
+        self.assertEqual(captured["mode_choice"], "fast")
+        self.assertEqual(captured["env_overrides"], {"OLLAMA_MODEL": "qwen3.6:35b"})
+
+    def test_use_ollama_default_false_keeps_openailiked(self):
+        captured, patcher = self._capture_submit()
+        with patcher:
+            response = self._client().post(
+                "/v1/service/translate",
+                data={"service": "precise", "use_ollama": "false"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(captured["service"], "OpenAI-liked")
+        self.assertEqual(captured["env_overrides"], {"OPENAILIKED_MODEL": "qwen3.6-plus"})
+
+    def test_unknown_service_with_use_ollama_rejected(self):
+        called = {"submit": False}
+
+        async def fail_submit(request, **kwargs):
+            called["submit"] = True
+            return {}
+
+        with patch.object(api_server, "_submit_translate_job", fail_submit):
+            response = self._client().post(
+                "/v1/service/translate",
+                data={"service": "medium", "use_ollama": "true"},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("medium", response.json()["detail"])
+        self.assertFalse(called["submit"])
 
 
 class TestTranslateEndpointDelegation(unittest.TestCase):

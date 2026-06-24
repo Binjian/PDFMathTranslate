@@ -16,16 +16,29 @@ uvicorn pdf2zh.api_server:app --host 0.0.0.0 --port 7861
 
 ## 1. `POST /v1/service/translate`
 
-Submit a translation job with a single `service` knob, intended for an
-OpenAI-compatible (`OpenAI-liked`) backend. The translator, its credentials and
-the model are resolved **server-side** and never sent by the client.
+Submit a translation job with a single `service` knob. The translator, its
+credentials and the model are resolved **server-side** and never sent by the
+client. Both services run on the v1 (`fast`) kernel; `service` only selects the
+model.
 
-`service` selects both the kernel mode and the model:
+By default the job uses the OpenAI-compatible (`OpenAI-liked`) backend, and
+`service` selects the model:
 
-| `service` | kernel mode | model (`OPENAILIKED_MODEL`) |
-|---|---|---|
-| `fast` (default) | `fast` | `qwen3.6-flash` |
-| `precise` | `precise` | `qwen3.6-plus` |
+| `service` | model (`OPENAILIKED_MODEL`) |
+|---|---|
+| `fast` (default) | `qwen3.6-flash` |
+| `precise` | `qwen3.6-plus` |
+
+Pass `use_ollama=true` to route the job to the local `Ollama` translator
+instead; `service` then selects the Ollama model:
+
+| `service` | model (`OLLAMA_MODEL`) |
+|---|---|
+| `fast` (default) | `gemma4:e4b` |
+| `precise` | `qwen3.6:35b` |
+
+The selected Ollama model must be installed on the server's Ollama host
+(default `http://127.0.0.1:11434`), or the request fails with `400`/`502`.
 
 ### Request — `multipart/form-data`
 
@@ -34,6 +47,7 @@ the model are resolved **server-side** and never sent by the client.
 | `file` | file | — | PDF upload. Provide **either** `file` or `link`. |
 | `link` | string | `""` | URL to a PDF (used when no `file`). |
 | `service` | string | `fast` | `fast` or `precise`. |
+| `use_ollama` | bool | `false` | Route to the `Ollama` translator instead of `OpenAI-liked`. |
 | `lang_from` | string | `English` | Source language. |
 | `lang_to` | string | `Simplified Chinese` | Target language. |
 | `page_range` | string | `All` | `All`, `First`, `First 5 pages`, or custom. |
@@ -58,6 +72,14 @@ curl -X POST http://localhost:7861/v1/service/translate \
   -F "lang_from=English" \
   -F "lang_to=Simplified Chinese"
 # => {"job_id": "3f2c...-..."}
+
+# Translate locally with Ollama (precise -> qwen3.6:35b):
+curl -X POST http://localhost:7861/v1/service/translate \
+  -F "file=@paper.pdf" \
+  -F "service=precise" \
+  -F "use_ollama=true" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese"
 ```
 
 Poll status, then retrieve the results (see below):

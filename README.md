@@ -243,25 +243,42 @@ Please refer to the test script in [test/test_translate_service.sh](../test/test
 <h3 id="service-submit">POST /v1/service/translate</h3>
 
 A simplified submission that exposes a single `service` knob and resolves the
-translator, its credentials and the model **server-side**. The translator is
-frozen to `OpenAI-liked`, and `service` selects both the kernel mode and the
-model:
+translator, its credentials and the model **server-side**. Both services run on
+the v1 (`fast`) kernel; `service` only selects the model. By default the
+translator is frozen to `OpenAI-liked`:
 
-| `service` | kernel mode | model (`OPENAILIKED_MODEL`) |
-|---|---|---|
-| `fast` (default) | `fast` | `qwen3.6-flash` |
-| `precise` | `precise` | `qwen3.6-plus` |
+| `service` | model (`OPENAILIKED_MODEL`) |
+|---|---|
+| `fast` (default) | `qwen3.6-flash` |
+| `precise` | `qwen3.6-plus` |
+
+Pass `use_ollama=true` to route the job to the local `Ollama` translator
+instead; `service` then selects the Ollama model:
+
+| `service` | model (`OLLAMA_MODEL`) |
+|---|---|
+| `fast` (default) | `gemma4:e4b` |
+| `precise` | `qwen3.6:35b` |
 
 It accepts the same `file`/`link`, `lang_from`, `lang_to`, `page_range`,
 `page_input`, `prompt`, `threads`, `skip_subset_fonts`, `ignore_cache` and
-`vfont` fields as `POST /v1/translate`, but **not** `service` as a translator
-name, `mode_choice`, or `env_*` credentials. Returns `202` with a `job_id`, or
-`400` for an unknown `service`.
+`vfont` fields as `POST /v1/translate`, plus the optional `use_ollama` flag
+(default `false`), but **not** `service` as a translator name, `mode_choice`, or
+`env_*` credentials. Returns `202` with a `job_id`, or `400` for an unknown
+`service`.
 
 ```bash
 curl http://127.0.0.1:7861/v1/service/translate \
   -F "file=@paper.pdf;type=application/pdf" \
   -F "service=precise" \
+  -F "lang_from=English" \
+  -F "lang_to=Simplified Chinese"
+
+# Same submission, but translated locally with Ollama (precise -> qwen3.6:35b):
+curl http://127.0.0.1:7861/v1/service/translate \
+  -F "file=@paper.pdf;type=application/pdf" \
+  -F "service=precise" \
+  -F "use_ollama=true" \
   -F "lang_from=English" \
   -F "lang_to=Simplified Chinese"
 ```

@@ -5,6 +5,10 @@ set -uo pipefail
 #   services:    Ollama (qwen3.6:latest), OpenAI-liked (qwen3.6-flash, qwen3.6-plus)
 #   translation: English->Chinese, Chinese->English
 #   modes:       fast, precise
+#
+# Each job is submitted via POST /v1/translate, then the full retrieval surface
+# is exercised: GET /v1/translate/{job_id}/{mono,dual,both,record} (including
+# /both as multipart/mixed and ?zip=true) and DELETE .../artifacts.
 
 API_BASE_URL="${API_BASE_URL:-http://10.2.2.94:7861}"
 # API_BASE_URL="${API_BASE_URL:-http://172.27.74.16:7861}"
@@ -129,8 +133,74 @@ run_case() {
     "${API_BASE_URL}/v1/translate/${job_id}/dual" \
     --output "$dual_path" || return 1
 
+  # ── GET /both (multipart/mixed, the default) ─────────────────────────────
+  local both_multipart="${OUTPUT_DIR}/${job_id}-both.multipart"
+  local both_headers="${OUTPUT_DIR}/${job_id}-both.headers"
+  echo "Downloading both (multipart/mixed) to $both_multipart"
+  "${CURL[@]}" --fail --silent --show-error -D "$both_headers" \
+    "${API_BASE_URL}/v1/translate/${job_id}/both" \
+    --output "$both_multipart" || return 1
+
+  if ! grep -qi 'content-type:[[:space:]]*multipart/mixed' "$both_headers"; then
+    echo "GET /both did not return multipart/mixed:" >&2
+    grep -i 'content-type' "$both_headers" >&2
+    return 1
+  fi
+  local pdf_parts
+  pdf_parts="$(grep -a -c '%PDF' "$both_multipart")" || true
+  if [[ "${pdf_parts:-0}" -lt 2 ]]; then
+    echo "GET /both multipart body did not contain two PDF parts (found ${pdf_parts:-0})" >&2
+    return 1
+  fi
+
+  # ── GET /both?zip=true (single zip archive) ──────────────────────────────
+  local both_zip="${OUTPUT_DIR}/${job_id}-both.zip"
+  echo "Downloading both (zip) to $both_zip"
+  "${CURL[@]}" --fail --silent --show-error \
+    "${API_BASE_URL}/v1/translate/${job_id}/both?zip=true" \
+    --output "$both_zip" || return 1
+
+  if [[ "$(head -c2 "$both_zip")" != "PK" ]]; then
+    echo "GET /both?zip=true did not return a zip archive (bad magic bytes)" >&2
+    return 1
+  fi
+  if command -v unzip >/dev/null 2>&1; then
+    local zip_entries
+    zip_entries="$(unzip -Z1 "$both_zip" 2>/dev/null | grep -c -i '\.pdf')" || true
+    if [[ "${zip_entries:-0}" -lt 2 ]]; then
+      echo "GET /both?zip=true archive did not contain two PDFs (found ${zip_entries:-0})" >&2
+      return 1
+    fi
+  fi
+
+  # ── GET /record (MongoDB metadata document) ──────────────────────────────
+  echo "Fetching record for job ${job_id}"
+  local record_response
+  record_response="$(
+    "${CURL[@]}" --fail --silent --show-error \
+      "${API_BASE_URL}/v1/translate/${job_id}/record"
+  )" || return 1
+
+  echo "$record_response" > "${OUTPUT_DIR}/${job_id}-record.json"
+  if ! printf '%s' "$record_response" | python -c '
+import json, sys
+doc = json.load(sys.stdin)
+job_id = sys.argv[1]
+assert (doc.get("job_id") or doc.get("_id")) == job_id, "record job_id mismatch"
+assert doc.get("status") == "done", "record status=" + repr(doc.get("status"))
+files = doc.get("files") or []
+assert isinstance(files, list) and files, "record has no files"
+for key in ("service", "llm_requests", "llm_prompt_tokens",
+            "llm_completion_tokens", "llm_total_tokens"):
+    assert key in doc, "record missing field " + key
+' "$job_id"; then
+    echo "GET /record document failed validation:" >&2
+    echo "$record_response" >&2
+    return 1
+  fi
+
   echo "Done:"
-  ls -lh "$mono_path" "$dual_path"
+  ls -lh "$mono_path" "$dual_path" "$both_multipart" "$both_zip"
 
   echo "Deleting remote artifacts for job ${job_id}"
   local delete_response
