@@ -2978,10 +2978,21 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 link_cls = f"sort-{order}" if h == sort else ""
                 return Th(A(h, href=f"/job-log?sort={h}&order={next_order}&ui_lang={ui_lang}", cls=link_cls))
 
+            # Link the job_id cell to GET /v1/translate/{job_id}/record so the
+            # stored MongoDB document is one click away. Falls back to plain text
+            # when no API backend is configured (the route is served there).
+            job_id_idx = headers.index("job_id") if "job_id" in headers else None
+
+            def _td(cell: str, col: int) -> object:
+                if col == job_id_idx and cell and API_BASE_URL:
+                    href = f"{API_BASE_URL}/v1/translate/{cell}/record"
+                    return Td(A(cell, href=href, target="_blank", rel="noopener"))
+                return Td(cell)
+
             content = Div(
                 Table(
                     Thead(Tr(*[_th(h) for h in headers])),
-                    Tbody(*[Tr(*[Td(cell) for cell in row]) for row in rows]),
+                    Tbody(*[Tr(*[_td(cell, i) for i, cell in enumerate(row)]) for row in rows]),
                 ),
                 cls="job-log-wrap panel",
             )
