@@ -944,6 +944,14 @@ _SERVICE_OPENAILIKED_MODEL = {
     "precise": "qwen3.6-plus",
 }
 
+# When `use_ollama=True` on POST /v1/service/translate, the job is routed to the
+# Ollama translator and `service` selects the OLLAMA_MODEL instead of the
+# OpenAI-liked qwen models.
+_SERVICE_OLLAMA_MODEL = {
+    "fast": "gemma4:e4b",
+    "precise": "qwen3.6:35b",
+}
+
 
 async def _submit_translate_job(
     request: Request,
@@ -1142,6 +1150,7 @@ async def create_translate_job_via_service(
     skip_subset_fonts: Annotated[bool, Form()] = False,
     ignore_cache: Annotated[bool, Form()] = False,
     vfont: Annotated[str, Form()] = "",
+    use_ollama: Annotated[bool, Form()] = False,
 ) -> dict:
     """Submit a translation job driven by ``service`` (``fast`` / ``precise``).
 
@@ -1149,9 +1158,40 @@ async def create_translate_job_via_service(
     ``service`` selects the model: ``fast`` -> ``qwen3.6-flash``,
     ``precise`` -> ``qwen3.6-plus``.
 
+    When ``use_ollama=True`` the job is instead routed to the ``Ollama``
+    translator; ``service`` still selects the model: ``fast`` -> ``gemma4:e4b``,
+    ``precise`` -> ``qwen3.6:35b``.
+
     Returns 202 Accepted with ``{"job_id": "<uuid>"}`` immediately.
     """
     mode = (service or "fast").strip().lower()
+
+    if use_ollama:
+        ollama_model = _SERVICE_OLLAMA_MODEL.get(mode)
+        if ollama_model is None:
+            raise HTTPException(
+                400,
+                f"Unknown service '{service}'. "
+                f"Valid values: {sorted(_SERVICE_OLLAMA_MODEL)}",
+            )
+        return await _submit_translate_job(
+            request,
+            file=file,
+            link=link,
+            service="Ollama",
+            lang_from=lang_from,
+            lang_to=lang_to,
+            page_range=page_range,
+            page_input=page_input,
+            prompt=prompt,
+            threads=threads,
+            skip_subset_fonts=skip_subset_fonts,
+            ignore_cache=ignore_cache,
+            vfont=vfont,
+            mode_choice="fast",
+            env_overrides={"OLLAMA_MODEL": ollama_model},
+        )
+
     model = _SERVICE_OPENAILIKED_MODEL.get(mode)
     if model is None:
         raise HTTPException(
