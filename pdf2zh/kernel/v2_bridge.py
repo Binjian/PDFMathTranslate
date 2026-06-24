@@ -24,6 +24,11 @@ SERVICE_NAME_MAP: dict[str, str] = {
     "zhipu": "zhipu",
     "silicon": "siliconflow",
     "siliconflow": "siliconflow",
+    # v1 "OpenAI-liked" (translator.name == "openailiked") points at a
+    # DashScope / OpenAI-compatible endpoint. v2's flag field is the engine
+    # type lowercased, so it is "openaicompatible" (no separator) → the
+    # emitted CLI flag is "--openaicompatible".
+    "openailiked": "openaicompatible",
     "gemini": "gemini",
     "tencent": "tencent",
     "dify": "dify",
@@ -82,6 +87,15 @@ _ENGINE_ENV_NAMES: set[str] = {
     "ALIYUN_DASHSCOPE_MODEL",
     "MODELSCOPE_API_KEY",
     "MODELSCOPE_MODEL",
+}
+
+
+# v1 OPENAILIKED_* settings → v2 OpenAICompatible detail env vars.  v2 reads
+# these as PDF2ZH_<FIELD_NAME_UPPER>, e.g. PDF2ZH_OPENAI_COMPATIBLE_BASE_URL.
+_OPENAILIKED_TO_OPENAI_COMPATIBLE_ENV: dict[str, str] = {
+    "OPENAILIKED_BASE_URL": "OPENAI_COMPATIBLE_BASE_URL",
+    "OPENAILIKED_API_KEY": "OPENAI_COMPATIBLE_API_KEY",
+    "OPENAILIKED_MODEL": "OPENAI_COMPATIBLE_MODEL",
 }
 
 
@@ -192,6 +206,16 @@ def request_to_env(request: Any) -> dict[str, str]:
     # Handle service:model → PDF2ZH_{ENGINE}_MODEL
     service_raw = data.get("service", "google")
     service, model = _split_service_model(service_raw)
+
+    # OpenAI-liked (v1) → OpenAICompatible (v2): the OPENAILIKED_* settings carry
+    # the DashScope base URL / key / model and must be republished under the
+    # names v2's OpenAICompatible engine reads, or v2 falls back to its default.
+    if service.lower() == "openailiked":
+        for src, dst in _OPENAILIKED_TO_OPENAI_COMPATIBLE_ENV.items():
+            value = envs.get(src)
+            if value not in (None, ""):
+                env[f"PDF2ZH_{dst}"] = str(value)
+
     if model:
         engine_type = SERVICE_NAME_MAP.get(service.lower())
         if engine_type:

@@ -305,6 +305,37 @@ class TestV2Bridge(unittest.TestCase):
         self.assertEqual(env["PDF2ZH_DEEPSEEK_API_KEY"], "ds-key")
         self.assertEqual(env["PDF2ZH_DEEPSEEK_MODEL"], "deepseek-reasoner")
 
+    def test_cli_args_openailiked_maps_to_openaicompatible(self):
+        # v1 "OpenAI-liked" (translator.name == "openailiked") must select v2's
+        # OpenAICompatible engine, whose CLI flag is "--openaicompatible".
+        from pdf2zh.kernel.v2_bridge import request_to_cli_args
+        from pdf2zh.kernel.protocol import TranslateRequest
+
+        req = TranslateRequest(files=["test.pdf"], service="openailiked")
+        args = request_to_cli_args(req)
+        self.assertIn("--openaicompatible", args)
+
+    def test_request_to_env_openailiked_to_openai_compatible(self):
+        from pdf2zh.kernel.v2_bridge import request_to_env
+        from pdf2zh.kernel.protocol import TranslateRequest
+
+        req = TranslateRequest(
+            files=["test.pdf"],
+            service="openailiked",
+            envs={
+                "OPENAILIKED_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "OPENAILIKED_API_KEY": "sk-test",
+                "OPENAILIKED_MODEL": "qwen3.6-plus",
+            },
+        )
+        env = request_to_env(req)
+        self.assertEqual(
+            env["PDF2ZH_OPENAI_COMPATIBLE_BASE_URL"],
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        self.assertEqual(env["PDF2ZH_OPENAI_COMPATIBLE_API_KEY"], "sk-test")
+        self.assertEqual(env["PDF2ZH_OPENAI_COMPATIBLE_MODEL"], "qwen3.6-plus")
+
 
 class TestKernelInit(unittest.TestCase):
 
