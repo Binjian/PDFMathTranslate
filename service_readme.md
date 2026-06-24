@@ -11,19 +11,6 @@ uvicorn pdf2zh.api_server:app --host 0.0.0.0 --port 7861
 # or: python -m pdf2zh.api_server
 ```
 
-## MongoDB requirement
-
-Translated PDFs and job metadata are stored in **MongoDB** (PDF binaries in
-GridFS, metadata in a collection). The retrieval endpoints below read from
-MongoDB and therefore require it to be configured and reachable:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `PDF2ZH_API_MONGODB_URI` | *(unset)* | Connection URI. Falls back to `MONGODB_URI`. Retrieval is unavailable when unset. |
-| `PDF2ZH_API_MONGODB_DB` | `pdf2zh` | Database name. |
-| `PDF2ZH_API_MONGODB_COLLECTION` | `job_artifacts` | Metadata collection (GridFS uses the `<collection>_fs` prefix). |
-
-When MongoDB is unreachable, retrieval endpoints return **503**.
 
 ---
 
