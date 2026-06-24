@@ -1145,9 +1145,9 @@ async def create_translate_job_via_service(
 ) -> dict:
     """Submit a translation job driven by ``service`` (``fast`` / ``precise``).
 
-    ``service`` is the renamed/exposed ``mode_choice``; the translator is frozen
-    to ``OpenAI-liked`` and ``service`` also selects the model:
-    ``fast`` -> ``qwen3.6-flash``, ``precise`` -> ``qwen3.6-plus``.
+    Both services run on the v1 (``fast``) kernel and only ``OpenAI-liked``;
+    ``service`` selects the model: ``fast`` -> ``qwen3.6-flash``,
+    ``precise`` -> ``qwen3.6-plus``.
 
     Returns 202 Accepted with ``{"job_id": "<uuid>"}`` immediately.
     """
@@ -1173,7 +1173,8 @@ async def create_translate_job_via_service(
         skip_subset_fonts=skip_subset_fonts,
         ignore_cache=ignore_cache,
         vfont=vfont,
-        mode_choice=mode,
+        # Both "fast" and "precise" use the v1 kernel; only the model differs.
+        mode_choice="fast",
         env_overrides={"OPENAILIKED_MODEL": model},
     )
 
