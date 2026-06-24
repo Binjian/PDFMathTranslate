@@ -331,6 +331,7 @@ UI_TEXT = {
         "threads": "number of threads",
         "skip_subset_fonts": "Skip font subsetting",
         "ignore_cache": "Ignore cache",
+        "use_ollama": "Use Ollama (local)",
         "vfont": "Custom formula font regex (vfont)",
         "translation_mode": "Translation Mode",
         "translate": "Translate",
@@ -385,6 +386,7 @@ UI_TEXT = {
         "threads": "线程数",
         "skip_subset_fonts": "跳过字体子集化",
         "ignore_cache": "忽略缓存",
+        "use_ollama": "使用 Ollama (本地)",
         "vfont": "自定义公式字体正则 (vfont)",
         "translation_mode": "翻译模式",
         "translate": "翻译",
@@ -871,6 +873,7 @@ def _run_api_translation_job(session_id: str, params: dict) -> None:
             "threads": str(params["threads"]),
             "skip_subset_fonts": str(params["skip_subset_fonts"]),
             "ignore_cache": str(params["ignore_cache"]),
+            "use_ollama": str(params.get("use_ollama", False)),
             "vfont": params["vfont"],
         }
     else:
@@ -1417,6 +1420,10 @@ def _run_settings(params: dict[str, T.Any], ui_lang: str) -> list[tuple[str, str
         (_t(ui_lang, "skip_subset_fonts"), _bool_label(bool(params.get("skip_subset_fonts")), ui_lang)),
         (_t(ui_lang, "ignore_cache"), _bool_label(bool(params.get("ignore_cache")), ui_lang)),
     ]
+    if params.get("api_variant") == "service":
+        rows.append(
+            (_t(ui_lang, "use_ollama"), _bool_label(bool(params.get("use_ollama")), ui_lang))
+        )
     if params.get("vfont"):
         rows.append((_t(ui_lang, "vfont"), str(params["vfont"])))
     if params.get("prompt"):
@@ -2341,6 +2348,16 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
                 _t(ui_lang, "translation_mode"),
                 Select(*_mode_options(ui_lang, service_value), name="service"),
             ),
+            # When checked, the backend routes the job to the local Ollama
+            # translator (use_ollama=True) instead of the default OpenAI-liked.
+            Div(
+                _checkbox(
+                    _t(ui_lang, "use_ollama"),
+                    "use_ollama",
+                    checked=bool(seed_params.get("use_ollama")),
+                ),
+                cls="toggle-row",
+            ),
             Div(
                 _field(
                     _t(ui_lang, "translate_from"),
@@ -2485,6 +2502,7 @@ def create_app(user_list: list[tuple[str, str]] | None = None, auth_message: str
             "threads": form.get("threads", "4"),
             "skip_subset_fonts": bool(form.get("skip_subset_fonts")),
             "ignore_cache": bool(form.get("ignore_cache")),
+            "use_ollama": bool(form.get("use_ollama")),
             "vfont": form.get("vfont", ""),
             "mode_choice": service_value,
             "recaptcha_response": form.get("recaptcha_response", ""),
